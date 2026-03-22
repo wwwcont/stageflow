@@ -123,7 +123,7 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 	for _, ws := range workspaces {
 		items = append(items, workspaceItem(ws))
 	}
-	h.renderPage(w, http.StatusOK, "templates/pages/home.html", viewmodels.HomePage{
+	h.renderPage(w, r, http.StatusOK, "templates/pages/home.html", viewmodels.HomePage{
 		Page:       h.basePage(r, h.text(r, "StageFlow UI", "StageFlow UI"), h.text(r, "Built-in server-rendered admin UI", "Встроенный серверный интерфейс администрирования"), nil, ""),
 		Workspaces: items,
 	})
@@ -131,7 +131,7 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) docs(w http.ResponseWriter, r *http.Request) {
 	page := h.basePage(r, h.text(r, "Documentation", "Документация"), h.text(r, "Practical guides for flows, cURL imports, sandbox usage, and troubleshooting.", "Практические инструкции по flow, импорту cURL, sandbox и отладке."), []viewmodels.Breadcrumb{{Label: h.text(r, "Docs", "Документация"), URL: h.uiPath("/docs")}}, h.uiPath("/docs"))
-	h.renderPage(w, http.StatusOK, "templates/pages/docs.html", viewmodels.DocsPage{Page: page})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/docs.html", viewmodels.DocsPage{Page: page})
 }
 
 func (h *Handler) setLanguage(w http.ResponseWriter, r *http.Request) {
@@ -155,11 +155,11 @@ func (h *Handler) workspaces(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		list = append(list, workspaceItem(item))
 	}
-	h.renderPage(w, http.StatusOK, "templates/pages/workspaces_list.html", viewmodels.WorkspaceListPage{Page: h.basePage(r, "Workspaces", "Browse and manage isolation boundaries", []viewmodels.Breadcrumb{{Label: "Workspaces", URL: h.uiPath("/workspaces")}}, ""), Workspaces: list})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/workspaces_list.html", viewmodels.WorkspaceListPage{Page: h.basePage(r, "Workspaces", "Browse and manage isolation boundaries", []viewmodels.Breadcrumb{{Label: "Workspaces", URL: h.uiPath("/workspaces")}}, ""), Workspaces: list})
 }
 
 func (h *Handler) workspaceNew(w http.ResponseWriter, r *http.Request) {
-	h.renderPage(w, http.StatusOK, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: h.basePage(r, "New workspace", "Create a new workspace", []viewmodels.Breadcrumb{{Label: "Workspaces", URL: h.uiPath("/workspaces")}, {Label: "New", URL: h.uiPath("/workspaces/new")}}, ""), Form: forms.WorkspaceForm{}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces")), SubmitLabel: "Create workspace"})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: h.basePage(r, "New workspace", "Create a new workspace", []viewmodels.Breadcrumb{{Label: "Workspaces", URL: h.uiPath("/workspaces")}, {Label: "New", URL: h.uiPath("/workspaces/new")}}, ""), Form: forms.WorkspaceForm{}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces")), SubmitLabel: "Create workspace"})
 }
 
 func (h *Handler) workspaceCreate(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +190,7 @@ func (h *Handler) workspaceOverview(w http.ResponseWriter, r *http.Request) {
 		"Default timeout":    fmt.Sprintf("%d ms", workspace.Policy.DefaultTimeoutMS),
 	}
 	page := h.workspacePage(r, workspace, "Overview", h.uiPath("/workspaces/"+string(workspace.ID)), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/workspace_overview.html", viewmodels.WorkspaceOverviewPage{Page: page, Workspace: workspaceItem(workspace), Policy: policySummary, Stats: viewmodels.WorkspaceOverviewStats{SavedRequests: len(requests), Flows: len(flows), Runs: len(runs)}})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/workspace_overview.html", viewmodels.WorkspaceOverviewPage{Page: page, Workspace: workspaceItem(workspace), Policy: policySummary, Stats: viewmodels.WorkspaceOverviewStats{SavedRequests: len(requests), Flows: len(flows), Runs: len(runs)}})
 }
 
 func (h *Handler) workspaceEdit(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +201,7 @@ func (h *Handler) workspaceEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	form := forms.WorkspaceForm{ID: string(workspace.ID), Name: workspace.Name, Slug: workspace.Slug, Description: workspace.Description, OwnerTeam: workspace.OwnerTeam}
 	page := h.workspacePage(r, workspace, "Edit workspace", h.uiPath("/workspaces/"+string(workspace.ID)+"/edit"), []viewmodels.Breadcrumb{{Label: "Edit", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/edit")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: page, Form: form, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/edit")), SubmitLabel: "Save workspace", WorkspaceID: string(workspace.ID), IsEdit: true})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: page, Form: form, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/edit")), SubmitLabel: "Save workspace", WorkspaceID: string(workspace.ID), IsEdit: true})
 }
 
 func (h *Handler) workspaceUpdate(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +214,7 @@ func (h *Handler) workspaceUpdate(w http.ResponseWriter, r *http.Request) {
 	_, err = h.services.workspaceManagement.UpdateWorkspace(r.Context(), usecase.UpdateWorkspaceCommand{WorkspaceID: workspace.ID, Name: form.Name, Slug: form.Slug, Description: form.Description, OwnerTeam: form.OwnerTeam})
 	if err != nil {
 		page := h.workspacePage(r, workspace, "Edit workspace", h.uiPath("/workspaces/"+string(workspace.ID)+"/edit"), []viewmodels.Breadcrumb{{Label: "Edit", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/edit")}})
-		h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: withError(page, err), Form: form, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/edit")), SubmitLabel: "Save workspace", WorkspaceID: string(workspace.ID), IsEdit: true})
+		h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: withError(page, err), Form: form, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/edit")), SubmitLabel: "Save workspace", WorkspaceID: string(workspace.ID), IsEdit: true})
 		return
 	}
 	h.redirectWithFlash(w, r, h.uiPath("/workspaces/"+string(workspace.ID)), forms.Flash{Kind: "success", Message: "Workspace updated."})
@@ -247,7 +247,7 @@ func (h *Handler) requests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "Saved requests", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests"), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/requests_list.html", viewmodels.SavedRequestListPage{Page: page, Workspace: workspaceItem(workspace), Requests: items})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/requests_list.html", viewmodels.SavedRequestListPage{Page: page, Workspace: workspaceItem(workspace), Requests: items})
 }
 
 func (h *Handler) requestNew(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +257,7 @@ func (h *Handler) requestNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "New saved request", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/new"), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: "New", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/new")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/request_form.html", viewmodels.SavedRequestFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.RequestForm{Method: "GET"}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/requests")), SubmitLabel: "Create request"})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/request_form.html", viewmodels.SavedRequestFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.RequestForm{Method: "GET"}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/requests")), SubmitLabel: "Create request"})
 }
 
 func (h *Handler) requestCreate(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +288,7 @@ func (h *Handler) requestDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	page := h.workspacePage(r, workspace, req.Name, h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/"+string(req.ID)), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: req.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/" + string(req.ID))}})
 	spec := requestSpecSummary(req.RequestSpec)
-	h.renderPage(w, http.StatusOK, "templates/pages/request_detail.html", viewmodels.SavedRequestDetailsPage{Page: page, Workspace: workspaceItem(workspace), Request: savedRequestItem(req), Spec: spec, Form: forms.RunLaunchForm{InitiatedBy: "ui-user", InputJSON: "{}"}})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/request_detail.html", viewmodels.SavedRequestDetailsPage{Page: page, Workspace: workspaceItem(workspace), Request: savedRequestItem(req), Spec: spec, Form: forms.RunLaunchForm{InitiatedBy: "ui-user", InputJSON: "{}"}})
 }
 
 func (h *Handler) requestEdit(w http.ResponseWriter, r *http.Request) {
@@ -298,7 +298,7 @@ func (h *Handler) requestEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "Edit saved request", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/"+string(req.ID)+"/edit"), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: req.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/" + string(req.ID))}, {Label: "Edit", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/" + string(req.ID) + "/edit")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/request_form.html", viewmodels.SavedRequestFormPage{Page: page, Workspace: workspaceItem(workspace), Form: formFromRequest(req), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/"+string(req.ID)+"/edit")), SubmitLabel: "Save request", IsEdit: true})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/request_form.html", viewmodels.SavedRequestFormPage{Page: page, Workspace: workspaceItem(workspace), Form: formFromRequest(req), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/"+string(req.ID)+"/edit")), SubmitLabel: "Save request", IsEdit: true})
 }
 
 func (h *Handler) requestUpdate(w http.ResponseWriter, r *http.Request) {
@@ -344,7 +344,7 @@ func (h *Handler) requestImportCurl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "Import cURL", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/import-curl"), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: "Import cURL", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/import-curl")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/curl_import.html", viewmodels.CurlImportPage{Page: page, Workspace: workspaceItem(workspace)})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/curl_import.html", viewmodels.CurlImportPage{Page: page, Workspace: workspaceItem(workspace)})
 }
 
 func (h *Handler) requestImportCurlSubmit(w http.ResponseWriter, r *http.Request) {
@@ -357,11 +357,11 @@ func (h *Handler) requestImportCurlSubmit(w http.ResponseWriter, r *http.Request
 	result, err := h.services.curlImport.ImportCurl(r.Context(), usecase.ImportCurlInput{Command: form.Command})
 	if err != nil {
 		page := h.workspacePage(r, workspace, "Import cURL", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/import-curl"), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: "Import cURL", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/import-curl")}})
-		h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/curl_import.html", viewmodels.CurlImportPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Form: form})
+		h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/curl_import.html", viewmodels.CurlImportPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Form: form})
 		return
 	}
 	preview := formFromRequest(domain.SavedRequest{RequestSpec: result.RequestSpec})
-	h.renderPage(w, http.StatusOK, "templates/pages/curl_import.html", viewmodels.CurlImportPage{Page: h.workspacePage(r, workspace, "Import cURL", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/import-curl"), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: "Import cURL", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/import-curl")}}), Workspace: workspaceItem(workspace), Form: form, Preview: &preview})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/curl_import.html", viewmodels.CurlImportPage{Page: h.workspacePage(r, workspace, "Import cURL", h.uiPath("/workspaces/"+string(workspace.ID)+"/requests/import-curl"), []viewmodels.Breadcrumb{{Label: "Saved requests", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests")}, {Label: "Import cURL", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/requests/import-curl")}}), Workspace: workspaceItem(workspace), Form: form, Preview: &preview})
 }
 
 func (h *Handler) flows(w http.ResponseWriter, r *http.Request) {
@@ -381,7 +381,7 @@ func (h *Handler) flows(w http.ResponseWriter, r *http.Request) {
 		list = append(list, flowItem(item, len(steps.Steps)))
 	}
 	page := h.workspacePage(r, workspace, "Flows", h.uiPath("/workspaces/"+string(workspace.ID)+"/flows"), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/flows_list.html", viewmodels.FlowListPage{Page: page, Workspace: workspaceItem(workspace), Flows: list})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flows_list.html", viewmodels.FlowListPage{Page: page, Workspace: workspaceItem(workspace), Flows: list})
 }
 
 func (h *Handler) flowNew(w http.ResponseWriter, r *http.Request) {
@@ -391,7 +391,7 @@ func (h *Handler) flowNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "New flow", h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/new"), []viewmodels.Breadcrumb{{Label: "Flows", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows")}, {Label: "New", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/new")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.FlowForm{Status: string(domain.FlowStatusDraft)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows")), SubmitLabel: "Create flow"})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.FlowForm{Status: string(domain.FlowStatusDraft)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows")), SubmitLabel: "Create flow"})
 }
 
 func (h *Handler) flowCreate(w http.ResponseWriter, r *http.Request) {
@@ -416,7 +416,7 @@ func (h *Handler) flowDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, view.Flow.Name, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(view.Flow.ID)), []viewmodels.Breadcrumb{{Label: "Flows", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows")}, {Label: view.Flow.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(view.Flow.ID))}})
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_detail.html", viewmodels.FlowDetailsPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(view.Flow, len(view.Steps)), Steps: flowStepItems(view.Steps), RunForm: forms.RunLaunchForm{InitiatedBy: "ui-user", InputJSON: "{}"}})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_detail.html", viewmodels.FlowDetailsPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(view.Flow, len(view.Steps)), Steps: flowStepItems(view.Steps), RunForm: forms.RunLaunchForm{InitiatedBy: "ui-user", InputJSON: "{}"}})
 }
 
 func (h *Handler) flowEdit(w http.ResponseWriter, r *http.Request) {
@@ -426,7 +426,7 @@ func (h *Handler) flowEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "Edit flow", h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(view.Flow.ID)+"/edit"), []viewmodels.Breadcrumb{{Label: "Flows", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows")}, {Label: view.Flow.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(view.Flow.ID))}, {Label: "Edit", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(view.Flow.ID) + "/edit")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.FlowForm{ID: string(view.Flow.ID), Name: view.Flow.Name, Description: view.Flow.Description, Status: string(view.Flow.Status)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(view.Flow.ID)+"/edit")), SubmitLabel: "Save flow", IsEdit: true, Steps: flowStepItems(view.Steps)})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.FlowForm{ID: string(view.Flow.ID), Name: view.Flow.Name, Description: view.Flow.Description, Status: string(view.Flow.Status)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(view.Flow.ID)+"/edit")), SubmitLabel: "Save flow", IsEdit: true, Steps: flowStepItems(view.Steps)})
 }
 
 func (h *Handler) flowUpdate(w http.ResponseWriter, r *http.Request) {
@@ -461,7 +461,7 @@ func (h *Handler) flowValidate(w http.ResponseWriter, r *http.Request) {
 		flash = forms.Flash{Kind: "error", Message: "Flow validation found issues."}
 	}
 	page.Flash = &flash
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.FlowForm{ID: string(view.Flow.ID), Name: view.Flow.Name, Description: view.Flow.Description, Status: string(view.Flow.Status)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(view.Flow.ID)+"/edit")), SubmitLabel: "Save flow", IsEdit: true, Steps: flowStepItems(view.Steps), ValidationIssues: result.Issues})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.FlowForm{ID: string(view.Flow.ID), Name: view.Flow.Name, Description: view.Flow.Description, Status: string(view.Flow.Status)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(view.Flow.ID)+"/edit")), SubmitLabel: "Save flow", IsEdit: true, Steps: flowStepItems(view.Steps), ValidationIssues: result.Issues})
 }
 
 func (h *Handler) flowRun(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +488,7 @@ func (h *Handler) flowStepNew(w http.ResponseWriter, r *http.Request) {
 	}
 	_, requests, _ := h.loadWorkspaceAndRequests(r.Context(), r.PathValue("id"))
 	page := h.workspacePage(r, workspace, "New step", h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps/new"), []viewmodels.Breadcrumb{{Label: "Flows", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows")}, {Label: flow.Flow.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(flow.Flow.ID))}, {Label: "New step", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(flow.Flow.ID) + "/steps/new")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_step_form.html", viewmodels.FlowStepFormPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: forms.FlowStepForm{StepType: string(domain.FlowStepTypeInlineRequest), InlineRequest: forms.RequestForm{Method: "GET"}, ExtractionRules: defaultExtractionRuleForms(nil)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps")), SubmitLabel: "Add step", SavedRequests: requests})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_step_form.html", viewmodels.FlowStepFormPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: forms.FlowStepForm{StepType: string(domain.FlowStepTypeInlineRequest), InlineRequest: forms.RequestForm{Method: "GET"}, ExtractionRules: defaultExtractionRuleForms(nil)}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps")), SubmitLabel: "Add step", SavedRequests: requests})
 }
 
 func (h *Handler) flowStepImportCurl(w http.ResponseWriter, r *http.Request) {
@@ -498,7 +498,7 @@ func (h *Handler) flowStepImportCurl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, h.text(r, "Import step from cURL", "Импорт шага из cURL"), h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps/import-curl"), []viewmodels.Breadcrumb{{Label: h.text(r, "Flows", "Флоу"), URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows")}, {Label: flow.Flow.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(flow.Flow.ID))}, {Label: h.text(r, "Import from cURL", "Импорт из cURL"), URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(flow.Flow.ID) + "/steps/import-curl")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_step_import_curl.html", viewmodels.FlowStepCurlImportPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: forms.CurlImportForm{}})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_step_import_curl.html", viewmodels.FlowStepCurlImportPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: forms.CurlImportForm{}})
 }
 
 func (h *Handler) flowStepImportCurlSubmit(w http.ResponseWriter, r *http.Request) {
@@ -511,12 +511,12 @@ func (h *Handler) flowStepImportCurlSubmit(w http.ResponseWriter, r *http.Reques
 	result, err := h.services.curlImport.ImportCurl(r.Context(), usecase.ImportCurlInput{Command: form.Command})
 	if err != nil {
 		page := h.workspacePage(r, workspace, h.text(r, "Import step from cURL", "Импорт шага из cURL"), r.URL.Path, nil)
-		h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/flow_step_import_curl.html", viewmodels.FlowStepCurlImportPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: form})
+		h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/flow_step_import_curl.html", viewmodels.FlowStepCurlImportPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: form})
 		return
 	}
 	preview := h.previewStepFormFromCurl(result.RequestSpec, len(flow.Steps))
 	page := h.workspacePage(r, workspace, h.text(r, "Import step from cURL", "Импорт шага из cURL"), r.URL.Path, nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_step_import_curl.html", viewmodels.FlowStepCurlImportPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: form, Preview: &preview})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_step_import_curl.html", viewmodels.FlowStepCurlImportPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: form, Preview: &preview})
 }
 
 func (h *Handler) flowStepCreate(w http.ResponseWriter, r *http.Request) {
@@ -536,7 +536,7 @@ func (h *Handler) flowStepEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	_, reqItems, _ := h.loadWorkspaceAndRequests(r.Context(), r.PathValue("id"))
 	page := h.workspacePage(r, workspace, "Edit step", h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps/"+string(stepID)+"/edit"), []viewmodels.Breadcrumb{{Label: "Flows", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows")}, {Label: flow.Flow.Name, URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(flow.Flow.ID))}, {Label: "Edit step", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/flows/" + string(flow.Flow.ID) + "/steps/" + string(stepID) + "/edit")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/flow_step_form.html", viewmodels.FlowStepFormPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: formFromStep(step), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps/"+string(stepID)+"/edit")), SubmitLabel: "Save step", IsEdit: true, SavedRequests: reqItems})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/flow_step_form.html", viewmodels.FlowStepFormPage{Page: page, Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: formFromStep(step), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/flows/"+string(flow.Flow.ID)+"/steps/"+string(stepID)+"/edit")), SubmitLabel: "Save step", IsEdit: true, SavedRequests: reqItems})
 }
 func (h *Handler) flowStepUpdate(w http.ResponseWriter, r *http.Request) {
 	h.flowStepMutate(w, r, "update")
@@ -558,7 +558,7 @@ func (h *Handler) variables(w http.ResponseWriter, r *http.Request) {
 		items = append(items, viewmodels.VariableListItem{Name: item.Name, Value: item.Value})
 	}
 	page := h.workspacePage(r, workspace, "Variables", h.uiPath("/workspaces/"+string(workspace.ID)+"/variables"), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/variables.html", viewmodels.VariablesPage{Page: page, Workspace: workspaceItem(workspace), Variables: items})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/variables.html", viewmodels.VariablesPage{Page: page, Workspace: workspaceItem(workspace), Variables: items})
 }
 
 func (h *Handler) variableNew(w http.ResponseWriter, r *http.Request) {
@@ -568,7 +568,7 @@ func (h *Handler) variableNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "New variable", h.uiPath("/workspaces/"+string(workspace.ID)+"/variables/new"), []viewmodels.Breadcrumb{{Label: "Variables", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/variables")}, {Label: "New", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/variables/new")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/variable_form.html", viewmodels.VariableFormPage{Page: page, Workspace: workspaceItem(workspace), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/variables")), SubmitLabel: "Save variable"})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/variable_form.html", viewmodels.VariableFormPage{Page: page, Workspace: workspaceItem(workspace), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/variables")), SubmitLabel: "Save variable"})
 }
 func (h *Handler) variableCreate(w http.ResponseWriter, r *http.Request) { h.variableMutate(w, r, "") }
 func (h *Handler) variableEdit(w http.ResponseWriter, r *http.Request) {
@@ -586,7 +586,7 @@ func (h *Handler) variableEdit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	page := h.workspacePage(r, workspace, "Edit variable", h.uiPath("/workspaces/"+string(workspace.ID)+"/variables/"+name+"/edit"), []viewmodels.Breadcrumb{{Label: "Variables", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/variables")}, {Label: "Edit", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/variables/" + name + "/edit")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/variable_form.html", viewmodels.VariableFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.VariableForm{Name: name, Value: value}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/variables/"+name+"/edit")), SubmitLabel: "Save variable", IsEdit: true, OriginalKey: name})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/variable_form.html", viewmodels.VariableFormPage{Page: page, Workspace: workspaceItem(workspace), Form: forms.VariableForm{Name: name, Value: value}, SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/variables/"+name+"/edit")), SubmitLabel: "Save variable", IsEdit: true, OriginalKey: name})
 }
 func (h *Handler) variableUpdate(w http.ResponseWriter, r *http.Request) {
 	h.variableMutate(w, r, r.PathValue("varId"))
@@ -628,7 +628,7 @@ func (h *Handler) secrets(w http.ResponseWriter, r *http.Request) {
 		items = append(items, viewmodels.SecretListItem{Name: item.Name})
 	}
 	page := h.workspacePage(r, workspace, "Secrets", h.uiPath("/workspaces/"+string(workspace.ID)+"/secrets"), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/secrets.html", viewmodels.SecretsPage{Page: page, Workspace: workspaceItem(workspace), Secrets: items})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/secrets.html", viewmodels.SecretsPage{Page: page, Workspace: workspaceItem(workspace), Secrets: items})
 }
 func (h *Handler) secretNew(w http.ResponseWriter, r *http.Request) {
 	workspace, err := h.loadWorkspace(r.Context(), r.PathValue("id"))
@@ -637,7 +637,7 @@ func (h *Handler) secretNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "New secret", h.uiPath("/workspaces/"+string(workspace.ID)+"/secrets/new"), []viewmodels.Breadcrumb{{Label: "Secrets", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/secrets")}, {Label: "New", URL: h.uiPath("/workspaces/" + string(workspace.ID) + "/secrets/new")}})
-	h.renderPage(w, http.StatusOK, "templates/pages/secret_form.html", viewmodels.SecretFormPage{Page: page, Workspace: workspaceItem(workspace), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/secrets")), SubmitLabel: "Save secret"})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/secret_form.html", viewmodels.SecretFormPage{Page: page, Workspace: workspaceItem(workspace), SubmitURL: h.uiURL(r, h.uiPath("/workspaces/"+string(workspace.ID)+"/secrets")), SubmitLabel: "Save secret"})
 }
 func (h *Handler) secretCreate(w http.ResponseWriter, r *http.Request) {
 	workspaceID := domain.WorkspaceID(r.PathValue("id"))
@@ -664,7 +664,7 @@ func (h *Handler) policy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := h.workspacePage(r, workspace, "Policy", h.uiPath("/workspaces/"+string(workspace.ID)+"/policy"), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/policy.html", viewmodels.PolicyPage{Page: page, Workspace: workspaceItem(workspace), Form: policyForm(workspace.Policy)})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/policy.html", viewmodels.PolicyPage{Page: page, Workspace: workspaceItem(workspace), Form: policyForm(workspace.Policy)})
 }
 func (h *Handler) policyUpdate(w http.ResponseWriter, r *http.Request) {
 	workspaceID := domain.WorkspaceID(r.PathValue("id"))
@@ -697,7 +697,7 @@ func (h *Handler) runs(w http.ResponseWriter, r *http.Request) {
 		items = append(items, h.runItem(r.Context(), run))
 	}
 	page := h.workspacePage(r, workspace, "Runs", h.uiPath("/workspaces/"+string(workspace.ID)+"/runs"), nil)
-	h.renderPage(w, http.StatusOK, "templates/pages/runs.html", viewmodels.RunsPage{Page: page, Workspace: workspaceItem(workspace), Runs: items})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/runs.html", viewmodels.RunsPage{Page: page, Workspace: workspaceItem(workspace), Runs: items})
 }
 
 func (h *Handler) runDetails(w http.ResponseWriter, r *http.Request) {
@@ -750,7 +750,7 @@ func (h *Handler) runDetails(w http.ResponseWriter, r *http.Request) {
 	if view.Run.IsTerminal() {
 		streamState = "completed"
 	}
-	h.renderPage(w, http.StatusOK, "templates/pages/run_detail.html", viewmodels.RunDetailsPage{Page: page, Workspace: workspaceItem(workspace), Run: h.runItem(r.Context(), view.Run), ErrorSummary: view.Run.ErrorMessage, InputJSON: prettyJSON(view.Run.InputJSON), RunSteps: steps, TargetDetails: targetDetails, RunEvents: eventItems, LastEventSequence: lastEventSequence, EventsStreamURL: h.uiURL(r, h.uiPath("/runs/"+string(view.Run.ID)+"/events?workspace_id="+url.QueryEscape(string(workspace.ID))+"&after="+strconv.FormatInt(lastEventSequence, 10))), StreamState: streamState})
+	h.renderPage(w, r, http.StatusOK, "templates/pages/run_detail.html", viewmodels.RunDetailsPage{Page: page, Workspace: workspaceItem(workspace), Run: h.runItem(r.Context(), view.Run), ErrorSummary: view.Run.ErrorMessage, InputJSON: prettyJSON(view.Run.InputJSON), RunSteps: steps, TargetDetails: targetDetails, RunEvents: eventItems, LastEventSequence: lastEventSequence, EventsStreamURL: h.uiURL(r, h.uiPath("/runs/"+string(view.Run.ID)+"/events?workspace_id="+url.QueryEscape(string(workspace.ID))+"&after="+strconv.FormatInt(lastEventSequence, 10))), StreamState: streamState})
 }
 
 func (h *Handler) runEventsStream(w http.ResponseWriter, r *http.Request) {
@@ -767,8 +767,9 @@ func (h *Handler) runEventsStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	live, cancel, err := h.services.runEvents.SubscribeRunEvents(r.Context(), usecase.ListRunEventsQuery{WorkspaceID: workspaceID, RunID: runID, AfterSequence: afterSequence})
 	if err != nil {
@@ -783,6 +784,8 @@ func (h *Handler) runEventsStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lastSequence := afterSequence
+	writeString(w, ": stream-open\n\n")
+	flusher.Flush()
 	for _, event := range history {
 		if err := writeSSEEvent(w, event); err != nil {
 			return
@@ -948,18 +951,36 @@ func (h *Handler) variableMutate(w http.ResponseWriter, r *http.Request, replace
 	h.redirectWithFlash(w, r, h.uiPath("/workspaces/"+string(workspace.ID)+"/variables"), forms.Flash{Kind: "success", Message: "Variable saved."})
 }
 
-func (h *Handler) renderPage(w http.ResponseWriter, status int, page string, data any) {
+func (h *Handler) renderPage(w http.ResponseWriter, r *http.Request, status int, page string, data any) {
+	if _, err := r.Cookie(flashCookieName); err == nil {
+		http.SetCookie(w, &http.Cookie{Name: flashCookieName, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	}
 	h.renderer.render(w, status, page, data)
 }
 func (h *Handler) renderError(w http.ResponseWriter, r *http.Request, err error) {
 	h.logger.Warn("ui request failed", zap.String("path", r.URL.Path), zap.Error(err))
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		h.redirectWithFlash(w, r, h.errorRedirectTarget(r), forms.Flash{Kind: "error", Message: err.Error()})
+		return
+	}
 	page := h.basePage(r, "UI error", "The requested operation could not be completed", nil, "")
 	page.Flash = &forms.Flash{Kind: "error", Message: err.Error()}
-	h.renderPage(w, http.StatusInternalServerError, "templates/pages/error.html", struct{ Page viewmodels.Page }{Page: page})
+	h.renderPage(w, r, http.StatusInternalServerError, "templates/pages/error.html", struct{ Page viewmodels.Page }{Page: page})
+}
+
+func (h *Handler) errorRedirectTarget(r *http.Request) string {
+	if referer := strings.TrimSpace(r.Referer()); referer != "" {
+		if parsed, err := url.Parse(referer); err == nil {
+			if target := parsed.RequestURI(); strings.TrimSpace(target) != "" && strings.HasPrefix(parsed.Path, h.uiPath("")) {
+				return target
+			}
+		}
+	}
+	return h.uiPath("")
 }
 func (h *Handler) renderWorkspaceFormError(w http.ResponseWriter, r *http.Request, form forms.WorkspaceForm, err error) {
 	page := h.basePage(r, "New workspace", "Create a new workspace", []viewmodels.Breadcrumb{{Label: "Workspaces", URL: h.uiPath("/workspaces")}, {Label: "New", URL: h.uiPath("/workspaces/new")}}, "")
-	h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: withError(page, err), Form: form, SubmitURL: h.uiURL(r, h.uiPath("/workspaces")), SubmitLabel: "Create workspace"})
+	h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/workspace_form.html", viewmodels.WorkspaceFormPage{Page: withError(page, err), Form: form, SubmitURL: h.uiURL(r, h.uiPath("/workspaces")), SubmitLabel: "Create workspace"})
 }
 func (h *Handler) renderRequestFormError(w http.ResponseWriter, r *http.Request, workspace domain.Workspace, form forms.RequestForm, err error, isEdit bool) {
 	title := "New saved request"
@@ -971,7 +992,7 @@ func (h *Handler) renderRequestFormError(w http.ResponseWriter, r *http.Request,
 		submitLabel = "Save request"
 	}
 	page := h.workspacePage(r, workspace, title, r.URL.Path, nil)
-	h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/request_form.html", viewmodels.SavedRequestFormPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Form: form, SubmitURL: submitURL, SubmitLabel: submitLabel, IsEdit: isEdit})
+	h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/request_form.html", viewmodels.SavedRequestFormPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Form: form, SubmitURL: submitURL, SubmitLabel: submitLabel, IsEdit: isEdit})
 }
 func (h *Handler) renderFlowFormError(w http.ResponseWriter, r *http.Request, workspace domain.Workspace, form forms.FlowForm, err error, isEdit bool, steps []viewmodels.FlowStepListItem) {
 	title := "New flow"
@@ -983,7 +1004,7 @@ func (h *Handler) renderFlowFormError(w http.ResponseWriter, r *http.Request, wo
 		submitLabel = "Save flow"
 	}
 	page := h.workspacePage(r, workspace, title, r.URL.Path, nil)
-	h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Form: form, SubmitURL: submitURL, SubmitLabel: submitLabel, IsEdit: isEdit, Steps: steps})
+	h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/flow_form.html", viewmodels.FlowFormPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Form: form, SubmitURL: submitURL, SubmitLabel: submitLabel, IsEdit: isEdit, Steps: steps})
 }
 func (h *Handler) renderStepFormError(w http.ResponseWriter, r *http.Request, workspace domain.Workspace, flow usecase.FlowDefinitionView, form forms.FlowStepForm, err error, isEdit bool) {
 	_, requests, _ := h.loadWorkspaceAndRequests(r.Context(), string(workspace.ID))
@@ -996,7 +1017,7 @@ func (h *Handler) renderStepFormError(w http.ResponseWriter, r *http.Request, wo
 		submitLabel = "Save step"
 	}
 	page := h.workspacePage(r, workspace, title, r.URL.Path, nil)
-	h.renderPage(w, http.StatusUnprocessableEntity, "templates/pages/flow_step_form.html", viewmodels.FlowStepFormPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: form, SubmitURL: submitURL, SubmitLabel: submitLabel, IsEdit: isEdit, SavedRequests: requests})
+	h.renderPage(w, r, http.StatusUnprocessableEntity, "templates/pages/flow_step_form.html", viewmodels.FlowStepFormPage{Page: withError(page, err), Workspace: workspaceItem(workspace), Flow: flowItem(flow.Flow, len(flow.Steps)), Form: form, SubmitURL: submitURL, SubmitLabel: submitLabel, IsEdit: isEdit, SavedRequests: requests})
 }
 
 func (h *Handler) basePage(r *http.Request, title, description string, breadcrumbs []viewmodels.Breadcrumb, current string) viewmodels.Page {

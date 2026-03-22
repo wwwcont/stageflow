@@ -9,6 +9,7 @@ document.addEventListener('click', (event) => {
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[data-run-events-panel]').forEach(initRunEventsPanel);
   document.querySelectorAll('[data-extraction-editor]').forEach(initExtractionEditor);
+  document.querySelectorAll('[data-flash-message]').forEach(initFlashMessage);
 });
 
 function initRunEventsPanel(panel) {
@@ -162,4 +163,11 @@ function initExtractionEditor(section) {
   });
 
   ensureAtLeastOneRow();
+}
+
+function initFlashMessage(node) {
+  window.setTimeout(() => {
+    if (!node.isConnected) return;
+    node.remove();
+  }, 5000);
 }

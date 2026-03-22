@@ -84,6 +84,20 @@ func (f fakeCurlSvc) ImportCurl(context.Context, usecase.ImportCurlInput) (useca
 	return f.result, nil
 }
 
+type fakeRunEventsSvc struct {
+	items []domain.RunEvent
+}
+
+func (f fakeRunEventsSvc) ListRunEvents(context.Context, usecase.ListRunEventsQuery) ([]domain.RunEvent, error) {
+	return f.items, nil
+}
+
+func (f fakeRunEventsSvc) SubscribeRunEvents(context.Context, usecase.ListRunEventsQuery) (<-chan domain.RunEvent, func(), error) {
+	ch := make(chan domain.RunEvent)
+	close(ch)
+	return ch, func() {}, nil
+}
+
 func testUIHandler(t *testing.T) http.Handler {
 	t.Helper()
 	return testUIHandlerWithCurl(t, fakeCurlSvc{})
@@ -323,6 +337,26 @@ func TestHandler_WorkspaceCreateRedirectPreservesLanguage(t *testing.T) {
 	}
 }
 
+func TestHandler_RenderPage_ClearsFlashCookieAfterDisplay(t *testing.T) {
+	h := testUIHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
+	req.AddCookie(&http.Cookie{Name: flashCookieName, Value: "c3VjY2Vzc3xPSw"})
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusOK)
+	}
+	var cleared bool
+	for _, cookie := range resp.Result().Cookies() {
+		if cookie.Name == flashCookieName && cookie.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("expected %q cookie to be cleared after render", flashCookieName)
+	}
+}
+
 func TestNormalizeAllowedHostEntries(t *testing.T) {
 	got := normalizeAllowedHostEntries([]string{" localhost:8091 ", "http://Example.internal/api", "https://svc.internal:8443/path"})
 	want := []string{"localhost", "example.internal", "svc.internal"}
@@ -466,5 +500,108 @@ func TestHandler_FlowStepUpdate_AllowsSwitchFromLocalhostToLoopbackIP(t *testing
 	}
 	if got := view.Steps[0].RequestSpec.URLTemplate; got != "http://127.0.0.1:8091/api/reset" {
 		t.Fatalf("RequestSpec.URLTemplate = %q, want %q", got, "http://127.0.0.1:8091/api/reset")
+	}
+}
+
+func TestHandler_PostErrorsRedirectBackWithFlash(t *testing.T) {
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	workspaceRepo := repository.NewInMemoryWorkspaceRepository(domain.Workspace{
+		ID:          "bootstrap",
+		Name:        "Bootstrap workspace",
+		Slug:        "bootstrap",
+		Description: "Default workspace used in tests.",
+		OwnerTeam:   "platform",
+		Status:      domain.WorkspaceStatusActive,
+		Policy:      domain.WorkspacePolicy{AllowedHosts: []string{"example.internal"}, MaxSavedRequests: 10, MaxFlows: 10, MaxStepsPerFlow: 10, MaxRequestBodyBytes: 1024, DefaultTimeoutMS: 1000, MaxRunDurationSeconds: 60, DefaultRetryPolicy: domain.RetryPolicy{Enabled: false}},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	workspaceSvc, err := usecase.NewWorkspaceManagementService(workspaceRepo, clock.System{})
+	if err != nil {
+		t.Fatalf("NewWorkspaceManagementService() error = %v", err)
+	}
+	flowSvc, err := usecase.NewFlowManagementService(workspaceRepo, repository.NewInMemorySavedRequestRepository(), repository.NewInMemoryFlowRepository(), repository.NewInMemoryFlowStepRepository(), clock.System{})
+	if err != nil {
+		t.Fatalf("NewFlowManagementService() error = %v", err)
+	}
+	if _, err := flowSvc.CreateFlow(context.Background(), usecase.CreateFlowCommand{
+		WorkspaceID: "bootstrap",
+		FlowID:      "demo-flow",
+		Name:        "Demo flow",
+		Description: "Flow used for POST error testing.",
+		Status:      domain.FlowStatusDraft,
+	}); err != nil {
+		t.Fatalf("CreateFlow() error = %v", err)
+	}
+
+	cfg := config.Config{UI: config.UIConfig{Enabled: true, Prefix: "/ui"}, Runtime: config.RuntimeConfig{AllowedHosts: []string{"example.internal"}}}
+	h := NewHandler(cfg, zap.NewNop(), workspaceSvc, fakeSavedRequestSvc{}, flowSvc, fakeRunSvc{}, fakeCurlSvc{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/workspaces/bootstrap/flows/demo-flow/steps/missing/move-up?lang=ru", nil)
+	req.Header.Set("Referer", "http://example.test/ui/workspaces/bootstrap/flows/demo-flow?lang=ru")
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d, body=%s", resp.Code, http.StatusSeeOther, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/ui/workspaces/bootstrap/flows/demo-flow?lang=ru" {
+		t.Fatalf("redirect location = %q, want %q", got, "/ui/workspaces/bootstrap/flows/demo-flow?lang=ru")
+	}
+	var found bool
+	for _, cookie := range resp.Result().Cookies() {
+		if cookie.Name == flashCookieName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected flash cookie %q to be set", flashCookieName)
+	}
+}
+
+func TestHandler_RunEventsStream_DisablesProxyBuffering(t *testing.T) {
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	workspaceRepo := repository.NewInMemoryWorkspaceRepository(domain.Workspace{
+		ID:          "bootstrap",
+		Name:        "Bootstrap workspace",
+		Slug:        "bootstrap",
+		Description: "Default workspace used in tests.",
+		OwnerTeam:   "platform",
+		Status:      domain.WorkspaceStatusActive,
+		Policy:      domain.WorkspacePolicy{AllowedHosts: []string{"example.internal"}, MaxSavedRequests: 10, MaxFlows: 10, MaxStepsPerFlow: 10, MaxRequestBodyBytes: 1024, DefaultTimeoutMS: 1000, MaxRunDurationSeconds: 60, DefaultRetryPolicy: domain.RetryPolicy{Enabled: false}},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	workspaceSvc, err := usecase.NewWorkspaceManagementService(workspaceRepo, clock.System{})
+	if err != nil {
+		t.Fatalf("NewWorkspaceManagementService() error = %v", err)
+	}
+	runRepo := repository.NewInMemoryRunRepository()
+	if err := runRepo.Create(context.Background(), domain.FlowRun{
+		ID:          "run-1",
+		WorkspaceID: "bootstrap",
+		FlowID:      "demo-flow",
+		FlowVersion: 1,
+		Status:      domain.RunStatusRunning,
+		InitiatedBy: "ui-user",
+		StartedAt:   &now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}); err != nil {
+		t.Fatalf("Create(run) error = %v", err)
+	}
+	runEventsSvc := fakeRunEventsSvc{items: []domain.RunEvent{{RunID: "run-1", Sequence: 1, EventType: domain.RunEventTypeRunStarted, Level: domain.RunEventLevelInfo, Message: "started", CreatedAt: now}}}
+	cfg := config.Config{UI: config.UIConfig{Enabled: true, Prefix: "/ui"}, Runtime: config.RuntimeConfig{AllowedHosts: []string{"example.internal"}}}
+	h := NewHandler(cfg, zap.NewNop(), workspaceSvc, fakeSavedRequestSvc{}, fakeFlowSvc{}, fakeRunSvc{}, fakeCurlSvc{}, runEventsSvc)
+	req := httptest.NewRequest(http.MethodGet, "/ui/runs/run-1/events?workspace_id=bootstrap", nil)
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	if got := resp.Header().Get("X-Accel-Buffering"); got != "no" {
+		t.Fatalf("X-Accel-Buffering = %q, want %q", got, "no")
+	}
+	if !strings.Contains(resp.Body.String(), ": stream-open") {
+		t.Fatalf("body missing initial stream-open comment: %s", resp.Body.String())
 	}
 }

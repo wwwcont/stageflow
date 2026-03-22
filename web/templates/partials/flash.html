@@ -1,5 +1,5 @@
 {{define "flash"}}
 {{if .Page.Flash}}
-<div class="alert alert-{{.Page.Flash.Kind}}">{{.Page.Flash.Message}}</div>
+<div class="alert alert-{{.Page.Flash.Kind}}" data-flash-message>{{.Page.Flash.Message}}</div>
 {{end}}
 {{end}}
