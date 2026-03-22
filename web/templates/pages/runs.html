@@ -1,0 +1,17 @@
+{{define "content"}}
+<section class="page-intro">
+  <div>
+    <h1>Runs</h1>
+    <p class="meta">A calm, compact view of execution history for this workspace.</p>
+  </div>
+</section>
+<section class="card table-card">
+  <header>
+    <div>
+      <h2>Recent activity</h2>
+      <p class="muted">Open any run to inspect details, step snapshots and live events.</p>
+    </div>
+  </header>
+  <table><thead><tr><th>Status</th><th>Target</th><th>Started</th><th>Finished</th><th>Duration</th><th>Initiated by</th></tr></thead><tbody>{{range .Runs}}<tr><td><span class="{{statusClass .Status}}">{{.Status}}</span></td><td><a href="{{uiURL $.Page.Lang (printf "/ui/runs/%s?workspace_id=%s" .ID $.Workspace.ID)}}">{{.TargetType}} · {{.TargetName}}</a></td><td>{{.StartedAt}}</td><td>{{.FinishedAt}}</td><td>{{.Duration}}</td><td>{{.InitiatedBy}}</td></tr>{{else}}<tr><td colspan="6"><div class="empty-state">No runs yet.</div></td></tr>{{end}}</tbody></table>
+</section>
+{{end}}

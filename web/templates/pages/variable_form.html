@@ -1,0 +1,4 @@
+{{define "content"}}
+<section class="section-header"><div><h1>{{if .IsEdit}}Edit variable{{else}}New variable{{end}}</h1></div></section>
+<form class="card stack" method="post" action="{{.SubmitURL}}"><label>Name<input name="name" value="{{.Form.Name}}"></label><label>Value<textarea name="value" rows="8">{{.Form.Value}}</textarea></label><div class="actions"><button class="button" type="submit">{{.SubmitLabel}}</button></div></form>
+{{end}}

@@ -1,0 +1,4 @@
+{{define "content"}}
+<section class="section-header"><div><h1>{{.Request.Name}}</h1><p>{{.Request.Description}}</p></div><div class="actions"><a class="button" href="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/requests/%s/edit" .Workspace.ID .Request.ID)}}">Edit</a></div></section>
+<div class="grid two"><section class="card"><h2>Definition</h2><dl class="kv">{{range $k,$v:=.Spec}}<dt>{{$k}}</dt><dd><pre>{{$v}}</pre></dd>{{end}}</dl></section><form class="stack" method="post" action="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/requests/%s/run" .Workspace.ID .Request.ID)}}">{{template "run_form" .Form}}<div class="actions"><button class="button" type="submit">Run request</button></div></form></div>
+{{end}}

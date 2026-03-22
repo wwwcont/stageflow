@@ -1,0 +1,7 @@
+{{define "content"}}
+<section class="section-header"><div><h1>{{if .IsEdit}}Edit saved request{{else}}Create saved request{{end}}</h1></div></section>
+<form class="card stack" method="post" action="{{.SubmitURL}}">
+  {{template "request_fields" .Form}}
+  <div class="actions"><button class="button" type="submit">{{.SubmitLabel}}</button></div>
+</form>
+{{end}}

@@ -1,0 +1,38 @@
+{{define "layout"}}
+<!doctype html>
+<html lang="{{.Page.Lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Page.Title}} · StageFlow</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script defer src="/static/js/app.js"></script>
+  {{if .Page.HasAutoRefresh}}<meta http-equiv="refresh" content="5;url={{.Page.AutoRefreshURL}}">{{end}}
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-lockup">
+      <div class="brand-mark">S</div>
+      <div class="brand-block">
+        <a class="brand" href="{{uiURL .Page.Lang "/ui"}}">StageFlow</a>
+        <span class="topbar-note">{{if eq .Page.Lang "ru"}}Минималистичная панель для flow, запросов и запусков{{else}}Minimal control plane for flows, requests and runs{{end}}</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+    <nav class="primary-nav">
+      {{range .Page.PrimaryNav}}<a class="{{if .Active}}active{{end}}" href="{{.URL}}">{{.Label}}</a>{{end}}
+      <a href="/version">{{if eq .Page.Lang "ru"}}Версия{{else}}Version{{end}}</a>
+      <a href="/healthz">{{if eq .Page.Lang "ru"}}Статус{{else}}Health{{end}}</a>
+    </nav>
+    <nav class="lang-switcher">{{range .Page.LanguageOptions}}<a class="{{if .Active}}active{{end}}" href="{{.URL}}">{{.Label}}</a>{{end}}</nav>
+    </div>
+  </header>
+  <main class="container">
+    {{template "breadcrumbs" .}}
+    {{template "flash" .}}
+    {{if .Page.WorkspaceTabs}}{{template "workspace_tabs" .}}{{end}}
+    {{template "content" .}}
+  </main>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,100 @@
+{{define "content"}}
+<section class="section-header">
+  <div>
+    <h1>Run {{.Run.ID}}</h1>
+    <p>{{.Run.TargetType}} · {{.Run.TargetName}}</p>
+  </div>
+</section>
+
+<div class="grid two">
+  <section class="card">
+    <h2>Run summary</h2>
+    <dl class="kv">
+      <dt>Status</dt><dd><span class="{{statusClass .Run.Status}}">{{.Run.Status}}</span></dd>
+      <dt>Started</dt><dd>{{.Run.StartedAt}}</dd>
+      <dt>Finished</dt><dd>{{.Run.FinishedAt}}</dd>
+      <dt>Duration</dt><dd>{{.Run.Duration}}</dd>
+      <dt>Initiated by</dt><dd>{{.Run.InitiatedBy}}</dd>
+      {{range $k,$v:=.TargetDetails}}<dt>{{$k}}</dt><dd>{{$v}}</dd>{{end}}
+    </dl>
+    {{if .ErrorSummary}}<div class="alert alert-error">{{.ErrorSummary}}</div>{{end}}
+    {{if or (contains .ErrorSummary "[::1]") (contains .ErrorSummary "localhost:8091")}}
+    <div class="alert alert-info">
+      {{if eq .Page.Lang "ru"}}
+      Подсказка: если sandbox запущен рядом со StageFlow в Docker Compose, используйте <code>http://sandbox:8091</code>. Если запускаете локально на хосте и видите IPv6-адрес <code>[::1]</code>, попробуйте <code>http://127.0.0.1:8091</code>.
+      {{else}}
+      Hint: if the sandbox runs next to StageFlow in Docker Compose, use <code>http://sandbox:8091</code>. If you see IPv6 loopback <code>[::1]</code>, try <code>http://127.0.0.1:8091</code> instead.
+      {{end}}
+    </div>
+    {{end}}
+  </section>
+  <section class="card">
+    <h2>Run input</h2>
+    <pre>{{.InputJSON}}</pre>
+  </section>
+</div>
+
+<section class="card live-log-panel" data-run-events-panel data-stream-url="{{.EventsStreamURL}}" data-stream-state="{{.StreamState}}">
+  <div class="live-log-header">
+    <div>
+      <h2>Live Logs</h2>
+      <p class="muted">Structured execution stream for this run. Snapshots remain below as the detailed history.</p>
+    </div>
+    <div class="live-log-controls">
+      <label>
+        Level
+        <select data-log-filter>
+          <option value="all">All</option>
+          <option value="info">Info</option>
+          <option value="warn">Warn</option>
+          <option value="error">Error</option>
+        </select>
+      </label>
+      <button class="button button-secondary" type="button" data-log-autoscroll-toggle>Pause auto-scroll</button>
+      <button class="button button-secondary" type="button" data-log-clear>Clear view</button>
+      <span class="live-log-status status-{{.StreamState}}" data-log-connection-status>{{.StreamState}}</span>
+    </div>
+  </div>
+  <div class="live-log-list" data-log-list data-last-sequence="{{.LastEventSequence}}">
+    {{range .RunEvents}}
+    <article class="live-log-entry" data-log-entry data-level="{{.Level}}" data-sequence="{{.Sequence}}">
+      <div class="live-log-meta">
+        <span class="muted">{{.Timestamp}}</span>
+        <span class="log-badge level-{{.Level}}">{{.Level}}</span>
+        <span class="log-badge type">{{.EventType}}</span>
+        <span class="log-badge step">{{.StepLabel}}</span>
+      </div>
+      <div class="live-log-message">{{.Message}}</div>
+      {{if .HasDetails}}
+      <details class="live-log-details">
+        <summary>Details</summary>
+        <pre>{{.Details}}</pre>
+      </details>
+      {{end}}
+    </article>
+    {{else}}
+    <div class="muted" data-log-empty-state>No execution events recorded yet.</div>
+    {{end}}
+  </div>
+</section>
+
+<section class="card">
+  <h2>Execution steps</h2>
+  {{range .RunSteps}}
+  <details class="run-step" open>
+    <summary><strong>{{.Name}}</strong> · <span class="{{statusClass .Status}}">{{.Status}}</span> · retries {{.RetryCount}} · {{.Duration}}</summary>
+    {{if .ErrorMessage}}<div class="alert alert-error">{{.ErrorMessage}}</div>{{end}}
+    <div class="grid two">
+      <div><h3>Request snapshot</h3><pre>{{.RequestSnapshot}}</pre></div>
+      <div><h3>Response snapshot</h3><pre>{{.ResponseSnapshot}}</pre></div>
+    </div>
+    <div class="grid two">
+      <div><h3>Extracted vars</h3><pre>{{.ExtractedValues}}</pre></div>
+      <div><h3>Attempts</h3><pre>{{.Attempts}}</pre></div>
+    </div>
+  </details>
+  {{else}}
+  <p>No step snapshots recorded yet.</p>
+  {{end}}
+</section>
+{{end}}

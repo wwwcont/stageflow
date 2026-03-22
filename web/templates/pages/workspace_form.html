@@ -1,0 +1,13 @@
+{{define "content"}}
+<section class="section-header"><div><h1>{{if .IsEdit}}Edit workspace{{else}}Create workspace{{end}}</h1></div></section>
+<form class="card stack" method="post" action="{{.SubmitURL}}">
+  {{if not .IsEdit}}<label>ID<input name="id" value="{{.Form.ID}}"></label>{{else}}<div class="muted">Workspace ID: <code>{{.WorkspaceID}}</code></div>{{end}}
+  <div class="grid two">
+    <label>Name<input name="name" value="{{.Form.Name}}"></label>
+    <label>Slug<input name="slug" value="{{.Form.Slug}}"></label>
+  </div>
+  <label>Description<textarea name="description" rows="4">{{.Form.Description}}</textarea></label>
+  <label>Owner team<input name="owner_team" value="{{.Form.OwnerTeam}}"></label>
+  <div class="actions"><button class="button" type="submit">{{.SubmitLabel}}</button></div>
+</form>
+{{end}}

@@ -1,0 +1,15 @@
+FROM golang:1.23 AS builder
+WORKDIR /src
+COPY go.mod .
+COPY third_party ./third_party
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/stageflow-sandbox ./cmd/stageflow-sandbox
+
+FROM alpine:3.20
+RUN adduser -D -h /app stageflow
+WORKDIR /app
+COPY --from=builder /out/stageflow-sandbox /usr/local/bin/stageflow-sandbox
+EXPOSE 8091
+USER stageflow
+ENTRYPOINT ["/usr/local/bin/stageflow-sandbox"]

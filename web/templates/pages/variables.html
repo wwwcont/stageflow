@@ -1,0 +1,4 @@
+{{define "content"}}
+<section class="section-header"><div><h1>Variables</h1></div><a class="button" href="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/variables/new" .Workspace.ID)}}">New variable</a></section>
+<section class="card"><table><thead><tr><th>Name</th><th>Value</th><th>Actions</th></tr></thead><tbody>{{range .Variables}}<tr><td><code>{{.Name}}</code></td><td><pre>{{.Value}}</pre></td><td><div class="inline-actions"><a class="button button-small" href="{{uiURL $.Page.Lang (printf "/ui/workspaces/%s/variables/%s/edit" $.Workspace.ID .Name)}}">Edit</a><form method="post" action="{{uiURL $.Page.Lang (printf "/ui/workspaces/%s/variables/%s/delete" $.Workspace.ID .Name)}}"><button class="button button-small button-danger" type="submit">Delete</button></form></div></td></tr>{{else}}<tr><td colspan="3">No variables defined.</td></tr>{{end}}</tbody></table></section>
+{{end}}

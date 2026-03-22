@@ -1,0 +1,11 @@
+{{define "run_form"}}
+<div class="card">
+  <h3>Launch</h3>
+  <div class="grid two">
+    <label>Initiated by<input name="initiated_by" value="{{.InitiatedBy}}"></label>
+    <label>Queue<input name="queue" value="{{.Queue}}"></label>
+  </div>
+  <label>Idempotency key<input name="idempotency_key" value="{{.IdempotencyKey}}"></label>
+  <label>Input JSON<textarea name="input_json" rows="8">{{.InputJSON}}</textarea></label>
+</div>
+{{end}}

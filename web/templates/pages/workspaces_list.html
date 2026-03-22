@@ -1,0 +1,6 @@
+{{define "content"}}
+<section class="section-header"><div><h1>Workspaces</h1><p>{{.Page.Description}}</p></div><a class="button" href="{{uiURL .Page.Lang "/ui/workspaces/new"}}">New workspace</a></section>
+<section class="card"><table><thead><tr><th>Name</th><th>Slug</th><th>Status</th><th>Owner team</th><th>Updated</th></tr></thead><tbody>
+{{range .Workspaces}}<tr><td><a href="{{uiURL $.Page.Lang (printf "/ui/workspaces/%s" .ID)}}">{{.Name}}</a><div class="muted">{{.Description}}</div></td><td>{{.Slug}}</td><td><span class="{{statusClass .Status}}">{{.Status}}</span></td><td>{{.OwnerTeam}}</td><td>{{.UpdatedAt}}</td></tr>{{else}}<tr><td colspan="5">No workspaces found.</td></tr>{{end}}
+</tbody></table></section>
+{{end}}

@@ -1,0 +1,8 @@
+{{define "content"}}
+<section class="section-header"><div><h1>{{if .IsEdit}}{{if eq .Page.Lang "ru"}}Редактировать шаг{{else}}Edit step{{end}}{{else}}{{if eq .Page.Lang "ru"}}Добавить шаг{{else}}Add step{{end}}{{end}}</h1><p>{{if eq .Page.Lang "ru"}}Флоу{{else}}Flow{{end}}: {{.Flow.Name}}</p></div><div class="actions">{{if not .IsEdit}}<a class="button button-secondary" href="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/flows/%s/steps/import-curl" .Workspace.ID .Flow.ID)}}">{{if eq .Page.Lang "ru"}}Импорт из cURL{{else}}Import from cURL{{end}}</a>{{end}}</div></section>
+<form class="card stack" method="post" action="{{.SubmitURL}}">
+  {{template "flow_step_fields" .}}
+  <div class="actions"><button class="button" type="submit">{{.SubmitLabel}}</button></div>
+</form>
+<section class="card"><h2>{{if eq .Page.Lang "ru"}}Saved request в этом workspace{{else}}Saved request options in workspace{{end}}</h2><ul>{{range .SavedRequests}}<li><code>{{.ID}}</code> — {{.Name}}</li>{{else}}<li>{{if eq .Page.Lang "ru"}}Нет доступных saved request.{{else}}No saved requests available.{{end}}</li>{{end}}</ul></section>
+{{end}}

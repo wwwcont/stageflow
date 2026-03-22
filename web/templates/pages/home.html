@@ -1,0 +1,44 @@
+{{define "content"}}
+<section class="hero card">
+  <div class="hero-grid">
+    <div>
+      <span class="eyebrow">{{if eq .Page.Lang "ru"}}Панель управления{{else}}Control center{{end}}</span>
+      <h1>StageFlow</h1>
+      <p>{{.Page.Description}}</p>
+      <div class="actions hero-actions">
+        <a class="button" href="{{uiURL .Page.Lang "/ui/workspaces"}}">{{if eq .Page.Lang "ru"}}Открыть воркспейсы{{else}}Browse workspaces{{end}}</a>
+        <a class="button button-secondary" href="/version">{{if eq .Page.Lang "ru"}}Версия API{{else}}API version{{end}}</a>
+      </div>
+    </div>
+    <div class="mini-stats">
+      <div class="mini-stat">
+        <strong>{{len .Workspaces}}</strong>
+        <span>{{if eq $.Page.Lang "ru"}}Воркспейсы{{else}}Workspaces{{end}}</span>
+      </div>
+      <div class="mini-stat">
+        <strong>UI</strong>
+        <span>{{if eq $.Page.Lang "ru"}}Серверный рендеринг{{else}}Server-rendered{{end}}</span>
+      </div>
+      <div class="mini-stat">
+        <strong>{{if eq $.Page.Lang "ru"}}Запуски{{else}}Runs{{end}}</strong>
+        <span>{{if eq $.Page.Lang "ru"}}Live-мониторинг{{else}}Live monitoring{{end}}</span>
+      </div>
+      <div class="mini-stat">
+        <strong>{{if eq $.Page.Lang "ru"}}Безопасно{{else}}Safe{{end}}</strong>
+        <span>{{if eq $.Page.Lang "ru"}}Выполнение с учетом политики{{else}}Policy-aware execution{{end}}</span>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="card table-card">
+  <header>
+    <div>
+      <h2>{{if eq .Page.Lang "ru"}}Воркспейсы{{else}}Workspaces{{end}}</h2>
+      <p class="muted">{{if eq .Page.Lang "ru"}}Краткий обзор окружений, которыми можно управлять из встроенного UI.{{else}}A compact overview of environments you can manage from the built-in UI.{{end}}</p>
+    </div>
+  </header>
+  <table><thead><tr><th>{{if eq .Page.Lang "ru"}}Название{{else}}Name{{end}}</th><th>Slug</th><th>{{if eq .Page.Lang "ru"}}Статус{{else}}Status{{end}}</th><th>{{if eq .Page.Lang "ru"}}Команда{{else}}Team{{end}}</th></tr></thead><tbody>
+  {{range .Workspaces}}<tr><td><a href="{{uiURL $.Page.Lang (printf "/ui/workspaces/%s" .ID)}}">{{.Name}}</a></td><td>{{.Slug}}</td><td><span class="{{statusClass .Status}}">{{.Status}}</span></td><td>{{.OwnerTeam}}</td></tr>{{else}}<tr><td colspan="4">{{if eq $.Page.Lang "ru"}}Пока нет воркспейсов.{{else}}No workspaces yet.{{end}}</td></tr>{{end}}
+  </tbody></table>
+</section>
+{{end}}

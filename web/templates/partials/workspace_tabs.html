@@ -1,0 +1,5 @@
+{{define "workspace_tabs"}}
+<nav class="tabs">
+  {{range .Page.WorkspaceTabs}}<a class="{{if .Active}}active{{end}}" href="{{.URL}}">{{.Label}}</a>{{end}}
+</nav>
+{{end}}

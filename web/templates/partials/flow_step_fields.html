@@ -1,0 +1,46 @@
+{{define "flow_step_fields"}}
+<div class="grid two"><label>{{if eq .Page.Lang "ru"}}ID шага{{else}}Step ID{{end}}<input name="id" value="{{.Form.ID}}"></label><label>{{if eq .Page.Lang "ru"}}Название{{else}}Name{{end}}<input name="name" value="{{.Form.Name}}"></label></div>
+<div class="grid two"><label>{{if eq .Page.Lang "ru"}}Тип шага{{else}}Step type{{end}}<input name="step_type" value="{{.Form.StepType}}" placeholder="inline_request|saved_request_ref"></label><label>{{if eq .Page.Lang "ru"}}ID saved request{{else}}Saved request ID{{end}}<input name="saved_request_id" value="{{.Form.SavedRequestID}}"></label></div>
+<section class="subsection"><h2>{{if eq .Page.Lang "ru"}}Inline request{{else}}Inline request{{end}}</h2>{{template "request_fields" .Form.InlineRequest}}</section>
+<section class="subsection"><h2>{{if eq .Page.Lang "ru"}}Переопределения saved request{{else}}Saved request override{{end}}</h2><div class="grid two"><label>{{if eq .Page.Lang "ru"}}Заголовки override{{else}}Override headers{{end}}<textarea name="override_headers" rows="6">{{.Form.OverrideHeadersText}}</textarea></label><label>{{if eq .Page.Lang "ru"}}Query override{{else}}Override query{{end}}<textarea name="override_query" rows="6">{{.Form.OverrideQueryText}}</textarea></label></div><label>{{if eq .Page.Lang "ru"}}Body override{{else}}Override body{{end}}<textarea name="override_body" rows="6">{{.Form.OverrideBody}}</textarea></label><div class="grid three"><label>{{if eq .Page.Lang "ru"}}Timeout override{{else}}Override timeout{{end}}<input name="override_timeout" value="{{.Form.OverrideTimeout}}"></label><label class="checkbox"><input type="checkbox" name="override_retry_enabled" {{if .Form.OverrideRetryEnabled}}checked{{end}}> {{if eq .Page.Lang "ru"}}Включить retry{{else}}Retry enabled{{end}}</label><label>{{if eq .Page.Lang "ru"}}Макс. попыток{{else}}Override retry max attempts{{end}}<input name="override_retry_max_attempts" value="{{.Form.OverrideRetryMaxAttempts}}"></label><label>{{if eq .Page.Lang "ru"}}Backoff{{else}}Override retry backoff{{end}}<input name="override_retry_backoff" value="{{.Form.OverrideRetryBackoff}}"></label><label>{{if eq .Page.Lang "ru"}}Начальный интервал{{else}}Override retry initial{{end}}<input name="override_retry_initial" value="{{.Form.OverrideRetryInitial}}"></label><label>{{if eq .Page.Lang "ru"}}Макс. интервал{{else}}Override retry max{{end}}<input name="override_retry_max" value="{{.Form.OverrideRetryMax}}"></label><label>{{if eq .Page.Lang "ru"}}Коды статуса{{else}}Override retry status codes{{end}}<input name="override_retry_status_codes" value="{{.Form.OverrideRetryStatusCodes}}"></label></div></section>
+<section class="subsection extraction-editor" data-extraction-editor data-lang="{{.Page.Lang}}">
+  <div class="section-header compact">
+    <div>
+      <h2>{{if eq .Page.Lang "ru"}}Извлечение переменных из response{{else}}Extract variables from the response{{end}}</h2>
+      <p class="muted">{{if eq .Page.Lang "ru"}}Каждое правило создаёт runtime-переменную. В следующих шагах используйте её как <code>{{"{{"}}vars.&lt;name&gt;{{"}}"}}</code>.{{else}}Each rule creates a runtime variable. Use it in later steps as <code>{{"{{"}}vars.&lt;name&gt;{{"}}"}}</code>.{{end}}</p>
+    </div>
+    <button class="button button-secondary button-small" type="button" data-add-extraction-rule>{{if eq .Page.Lang "ru"}}Добавить правило{{else}}Add rule{{end}}</button>
+  </div>
+  <div class="rule-list" data-extraction-rule-list>
+    {{range .Form.ExtractionRules}}
+    <div class="rule-card" data-extraction-rule-row>
+      <div class="grid extraction-grid">
+        <label>{{if eq $.Page.Lang "ru"}}Имя переменной{{else}}Variable name{{end}}<input name="extraction_name" value="{{.Name}}" placeholder="{{if eq $.Page.Lang "ru"}}например user_id{{else}}e.g. user_id{{end}}"></label>
+        <label>{{if eq $.Page.Lang "ru"}}Источник{{else}}Source{{end}}<select name="extraction_source"><option value="body" {{if eq .Source "body"}}selected{{end}}>body</option><option value="header" {{if eq .Source "header"}}selected{{end}}>header</option><option value="status" {{if eq .Source "status"}}selected{{end}}>status</option></select></label>
+        <label>{{if eq $.Page.Lang "ru"}}Selector{{else}}Selector{{end}}<input name="extraction_selector" value="{{.Selector}}" placeholder="{{if eq $.Page.Lang "ru"}}$.id / header.X-Trace-ID / status_code{{else}}$.id / header.X-Trace-ID / status_code{{end}}"></label>
+        <label>{{if eq $.Page.Lang "ru"}}Обязательное{{else}}Required{{end}}<select name="extraction_required"><option value="true" {{if eq .Required "true"}}selected{{end}}>{{if eq $.Page.Lang "ru"}}Да{{else}}Yes{{end}}</option><option value="false" {{if eq .Required "false"}}selected{{end}}>{{if eq $.Page.Lang "ru"}}Нет{{else}}No{{end}}</option></select></label>
+        <label>{{if eq $.Page.Lang "ru"}}JSON encode{{else}}JSON encode{{end}}<select name="extraction_json_encode"><option value="false" {{if eq .JSONEncode "false"}}selected{{end}}>{{if eq $.Page.Lang "ru"}}Нет{{else}}No{{end}}</option><option value="true" {{if eq .JSONEncode "true"}}selected{{end}}>{{if eq $.Page.Lang "ru"}}Да{{else}}Yes{{end}}</option></select></label>
+      </div>
+      <div class="inline-actions">
+        <button class="button button-secondary button-small" type="button" data-remove-extraction-rule>{{if eq $.Page.Lang "ru"}}Удалить{{else}}Remove{{end}}</button>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  <template data-extraction-rule-template>
+    <div class="rule-card" data-extraction-rule-row>
+      <div class="grid extraction-grid">
+        <label>{{if eq .Page.Lang "ru"}}Имя переменной{{else}}Variable name{{end}}<input name="extraction_name" placeholder="{{if eq .Page.Lang "ru"}}например user_id{{else}}e.g. user_id{{end}}"></label>
+        <label>{{if eq .Page.Lang "ru"}}Источник{{else}}Source{{end}}<select name="extraction_source"><option value="body">body</option><option value="header">header</option><option value="status">status</option></select></label>
+        <label>{{if eq .Page.Lang "ru"}}Selector{{else}}Selector{{end}}<input name="extraction_selector" placeholder="{{if eq .Page.Lang "ru"}}$.id / header.X-Trace-ID / status_code{{else}}$.id / header.X-Trace-ID / status_code{{end}}"></label>
+        <label>{{if eq .Page.Lang "ru"}}Обязательное{{else}}Required{{end}}<select name="extraction_required"><option value="true">{{if eq .Page.Lang "ru"}}Да{{else}}Yes{{end}}</option><option value="false">{{if eq .Page.Lang "ru"}}Нет{{else}}No{{end}}</option></select></label>
+        <label>{{if eq .Page.Lang "ru"}}JSON encode{{else}}JSON encode{{end}}<select name="extraction_json_encode"><option value="false">{{if eq .Page.Lang "ru"}}Нет{{else}}No{{end}}</option><option value="true">{{if eq .Page.Lang "ru"}}Да{{else}}Yes{{end}}</option></select></label>
+      </div>
+      <div class="inline-actions">
+        <button class="button button-secondary button-small" type="button" data-remove-extraction-rule>{{if eq .Page.Lang "ru"}}Удалить{{else}}Remove{{end}}</button>
+      </div>
+    </div>
+  </template>
+</section>
+<section class="subsection"><h2>{{if eq .Page.Lang "ru"}}Assertions{{else}}Assertions{{end}}</h2><label><textarea name="assertion_rules" rows="6">{{.Form.AssertionRulesText}}</textarea><small>{{if eq .Page.Lang "ru"}}Формат: name|target|operator|selector|expected_value|expected_values_csv{{else}}Format: name|target|operator|selector|expected_value|expected_values_csv{{end}}</small></label></section>
+{{end}}

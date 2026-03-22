@@ -1,0 +1,26 @@
+{{define "content"}}
+<section class="card hero">
+  <div class="workspace-hero">
+    <div>
+      <span class="eyebrow">Workspace overview</span>
+      <h1>{{.Workspace.Name}}</h1>
+      <p>{{.Workspace.Description}}</p>
+      <div class="actions hero-actions">
+        {{if eq .Workspace.Status "archived"}}
+        <form method="post" action="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/unarchive" .Workspace.ID)}}"><button class="button" type="submit">Restore from archive</button></form>
+        {{else}}
+        <a class="button" href="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/edit" .Workspace.ID)}}">Edit</a>
+        <form method="post" action="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/archive" .Workspace.ID)}}"><button class="button button-danger" type="submit">Archive</button></form>
+        {{end}}
+      </div>
+    </div>
+    <aside class="workspace-note">
+      <strong>{{.Workspace.Slug}}</strong>
+      <div class="meta">Owner team · {{.Workspace.OwnerTeam}}</div>
+      <div style="margin-top:.65rem"><span class="{{statusClass .Workspace.Status}}">{{.Workspace.Status}}</span></div>
+    </aside>
+  </div>
+</section>
+<div class="stats grid three"><div class="card"><strong>{{.Stats.SavedRequests}}</strong><span>Saved requests</span></div><div class="card"><strong>{{.Stats.Flows}}</strong><span>Flows</span></div><div class="card"><strong>{{.Stats.Runs}}</strong><span>Runs</span></div></div>
+<div class="grid two"><section class="card"><header><div><h2>Workspace</h2><p class="muted">Identity and ownership details.</p></div></header><dl class="kv"><dt>ID</dt><dd>{{.Workspace.ID}}</dd><dt>Slug</dt><dd>{{.Workspace.Slug}}</dd><dt>Owner team</dt><dd>{{.Workspace.OwnerTeam}}</dd><dt>Status</dt><dd><span class="{{statusClass .Workspace.Status}}">{{.Workspace.Status}}</span></dd></dl></section><section class="card"><header><div><h2>Policy summary</h2><p class="muted">Guardrails that shape requests, flows and runs.</p></div></header><dl class="kv">{{range $k,$v:=.Policy}}<dt>{{$k}}</dt><dd>{{$v}}</dd>{{end}}</dl></section></div>
+{{end}}

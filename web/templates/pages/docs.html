@@ -1,0 +1,52 @@
+{{define "content"}}
+<section class="hero card">
+  <span class="eyebrow">{{if eq .Page.Lang "ru"}}Docs{{else}}Docs{{end}}</span>
+  <h1>{{if eq .Page.Lang "ru"}}Документация StageFlow{{else}}StageFlow documentation{{end}}</h1>
+  <p>{{if eq .Page.Lang "ru"}}Короткие и практичные инструкции по работе с flow, saved request, sandbox и импортом cURL прямо из UI.{{else}}Short practical guides for flows, saved requests, the sandbox service, and cURL import directly from the UI.{{end}}</p>
+</section>
+
+<div class="docs-grid">
+  <section class="card">
+    <h2>{{if eq .Page.Lang "ru"}}Быстрый старт{{else}}Quick start{{end}}</h2>
+    <ol>
+      {{if eq .Page.Lang "ru"}}
+      <li>Создайте workspace.</li>
+      <li>Создайте flow в статусе <code>draft</code>.</li>
+      <li>Добавьте шаг вручную или через <strong>Import from cURL</strong>.</li>
+      <li>Проверьте flow через <strong>Validate</strong> и затем запустите его.</li>
+      <li>Для локальных сценариев используйте sandbox на <code>http://localhost:8091</code>; если окружение резолвит <code>localhost</code> в <code>[::1]</code> и соединение не поднимается, попробуйте <code>http://127.0.0.1:8091</code>.</li>
+      {{else}}
+      <li>Create a workspace.</li>
+      <li>Create a flow in <code>draft</code> status.</li>
+      <li>Add a step manually or through <strong>Import from cURL</strong>.</li>
+      <li>Validate the flow and then run it.</li>
+      <li>For local scenarios, use the sandbox service at <code>http://localhost:8091</code>; if your environment resolves it to <code>[::1]</code> and the connection is refused, try <code>http://127.0.0.1:8091</code>.</li>
+      {{end}}
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>{{if eq .Page.Lang "ru"}}Импорт шага из cURL{{else}}Import a flow step from cURL{{end}}</h2>
+    <p>{{if eq .Page.Lang "ru"}}Откройте flow, нажмите <strong>Import from cURL</strong>, вставьте curl-команду и получите предварительно заполненный шаг с методом, URL, заголовками, query, body и retry-параметрами. После этого можно добавить extraction и assertions и сохранить шаг прямо в flow.{{else}}Open a flow, click <strong>Import from cURL</strong>, paste a curl command, and StageFlow will pre-fill the step with method, URL, headers, query, body, and retry settings. You can then add extraction and assertions before saving the step into the flow.{{end}}</p>
+    <pre><code>curl -X POST http://sandbox:8091/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","email":"alice@example.test"}'</code></pre>
+  </section>
+
+  <section class="card">
+    <h2>{{if eq .Page.Lang "ru"}}Примеры sandbox{{else}}Sandbox examples{{end}}</h2>
+    <ul>
+      <li><code>POST /api/users</code> → <code>POST /api/accounts</code> → <code>POST /api/orders</code></li>
+      <li><code>GET /api/unstable</code> {{if eq .Page.Lang "ru"}}для проверки retry{{else}}for retry verification{{end}}</li>
+      <li><code>GET /api/delay/2500</code> {{if eq .Page.Lang "ru"}}для timeout-сценариев{{else}}for timeout scenarios{{end}}</li>
+      <li><code>GET /api/assert/wrong-value</code> {{if eq .Page.Lang "ru"}}для намеренного assertion failure{{else}}for deterministic assertion failures{{end}}</li>
+      <li><code>GET /api/headers</code> {{if eq .Page.Lang "ru"}}для extraction из заголовков{{else}}for response-header extraction{{end}}</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>{{if eq .Page.Lang "ru"}}Saved request и flow{{else}}Saved requests and flows{{end}}</h2>
+    <p>{{if eq .Page.Lang "ru"}}Saved request удобен для одиночного HTTP-вызова. Flow нужен, когда есть несколько шагов, extraction переменных между шагами, assertions или retry-логика.{{else}}A saved request is useful for a single HTTP call. A flow is the right choice when you need multiple steps, variable extraction across steps, assertions, or retry logic.{{end}}</p>
+  </section>
+</div>
+{{end}}

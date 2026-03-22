@@ -1,0 +1,11 @@
+{{define "content"}}
+<section class="section-header"><div><h1>{{if .IsEdit}}Edit flow{{else}}Create flow{{end}}</h1></div>{{if .IsEdit}}<div class="actions"><form method="post" action="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/flows/%s/validate" .Workspace.ID .Form.ID)}}"><button class="button button-secondary" type="submit">Validate flow</button></form></div>{{end}}</section>
+<form class="card stack" method="post" action="{{.SubmitURL}}">
+  {{if not .IsEdit}}<label>ID<input name="id" value="{{.Form.ID}}"></label>{{end}}
+  <div class="grid two"><label>Name<input name="name" value="{{.Form.Name}}"></label><label>Status<input name="status" value="{{.Form.Status}}" placeholder="draft|active|disabled|archived"></label></div>
+  <label>Description<textarea name="description" rows="4">{{.Form.Description}}</textarea></label>
+  <div class="actions"><button class="button" type="submit">{{.SubmitLabel}}</button></div>
+</form>
+{{if .ValidationIssues}}<section class="card"><h2>Validation issues</h2><ul>{{range .ValidationIssues}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
+{{if .Steps}}<section class="card"><h2>Current steps</h2><table><thead><tr><th>#</th><th>Name</th><th>Type</th><th>Summary</th></tr></thead><tbody>{{range .Steps}}<tr><td>{{.OrderIndex}}</td><td>{{.Name}}</td><td>{{stepTypeLabel .StepType}}</td><td><code>{{.Summary}}</code></td></tr>{{end}}</tbody></table></section>{{end}}
+{{end}}

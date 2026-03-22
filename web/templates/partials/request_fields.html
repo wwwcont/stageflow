@@ -1,0 +1,26 @@
+{{define "request_fields"}}
+<div class="grid two">
+  <label>Name<input name="name" value="{{.Name}}"></label>
+  <label>{{if .ID}}ID{{else}}ID{{end}}<input name="id" value="{{.ID}}"></label>
+  <label>Method<input name="method" value="{{.Method}}"></label>
+  <label>Timeout<input name="timeout" value="{{.Timeout}}" placeholder="10s"></label>
+</div>
+<label>Description<textarea name="description">{{.Description}}</textarea></label>
+<label>URL<textarea name="url">{{.URL}}</textarea></label>
+<div class="grid two">
+  <label>Headers<textarea name="headers" rows="6">{{.HeadersText}}</textarea><small>One per line: Header: value</small></label>
+  <label>Query params<textarea name="query" rows="6">{{.QueryText}}</textarea><small>One per line: key=value</small></label>
+</div>
+<label>Body<textarea name="body" rows="10">{{.Body}}</textarea></label>
+<div class="grid two">
+  <label class="checkbox"><input type="checkbox" name="follow_redirects" {{if .FollowRedirects}}checked{{end}}> Follow redirects</label>
+  <label class="checkbox"><input type="checkbox" name="retry_enabled" {{if .RetryEnabled}}checked{{end}}> Retry enabled</label>
+</div>
+<div class="grid three">
+  <label>Retry max attempts<input name="retry_max_attempts" value="{{.RetryMaxAttempts}}"></label>
+  <label>Retry backoff<input name="retry_backoff_strategy" value="{{.RetryBackoffStrategy}}" placeholder="fixed"></label>
+  <label>Retry status codes<input name="retry_status_codes" value="{{.RetryStatusCodes}}" placeholder="429,500,502"></label>
+  <label>Retry initial interval<input name="retry_initial_interval" value="{{.RetryInitialInterval}}" placeholder="250ms"></label>
+  <label>Retry max interval<input name="retry_max_interval" value="{{.RetryMaxInterval}}" placeholder="2s"></label>
+</div>
+{{end}}

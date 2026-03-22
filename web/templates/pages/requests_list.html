@@ -1,0 +1,4 @@
+{{define "content"}}
+<section class="section-header"><div><h1>Saved requests</h1></div><div class="actions"><a class="button button-secondary" href="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/requests/import-curl" .Workspace.ID)}}">Import cURL</a><a class="button" href="{{uiURL .Page.Lang (printf "/ui/workspaces/%s/requests/new" .Workspace.ID)}}">New request</a></div></section>
+<section class="card"><table><thead><tr><th>Name</th><th>Method</th><th>URL</th><th>Timeout</th><th>Updated</th></tr></thead><tbody>{{range .Requests}}<tr><td><a href="{{uiURL $.Page.Lang (printf "/ui/workspaces/%s/requests/%s" $.Workspace.ID .ID)}}">{{.Name}}</a><div class="muted">{{.Description}}</div></td><td>{{.Method}}</td><td><code>{{.URL}}</code></td><td>{{.Timeout}}</td><td>{{.UpdatedAt}}</td></tr>{{else}}<tr><td colspan="5">No saved requests yet.</td></tr>{{end}}</tbody></table></section>
+{{end}}
