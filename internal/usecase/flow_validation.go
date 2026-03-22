@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -133,9 +132,6 @@ func validateURLTemplate(stepName, raw string) []string {
 	}
 	if parsed.User != nil {
 		return []string{fmt.Sprintf("step %q request url_template must not include userinfo", stepName)}
-	}
-	if ip := net.ParseIP(parsed.Hostname()); ip != nil && ip.IsLoopback() {
-		return []string{fmt.Sprintf("step %q request url_template must not target a loopback host", stepName)}
 	}
 	return nil
 }

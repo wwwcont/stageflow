@@ -103,13 +103,18 @@ func NewSafeHTTPExecutor(cfg HTTPExecutorConfig) (*SafeHTTPExecutor, error) {
 	if cfg.DialTimeout <= 0 {
 		cfg.DialTimeout = defaultDialTimeout
 	}
-	allowedHosts := make(map[string]struct{}, len(cfg.AllowedHosts))
+	allowedHosts := make(map[string]struct{}, len(cfg.AllowedHosts)+2)
 	for _, host := range cfg.AllowedHosts {
 		normalized := strings.ToLower(strings.TrimSpace(host))
 		if normalized == "" {
 			return nil, fmt.Errorf("allowed hosts must not contain empty values")
 		}
 		allowedHosts[normalized] = struct{}{}
+		if normalized == "localhost" || isLoopbackIP(normalized) {
+			allowedHosts["localhost"] = struct{}{}
+			allowedHosts["127.0.0.1"] = struct{}{}
+			allowedHosts["::1"] = struct{}{}
+		}
 	}
 	sensitive := defaultSensitiveHeaders()
 	for _, header := range cfg.SensitiveHeaders {
@@ -318,18 +323,28 @@ func normalizedAllowedHosts(policy HTTPExecutionPolicy, defaults map[string]stru
 	if len(policy.AllowedHosts) == 0 {
 		return defaults
 	}
-	allowedHosts := make(map[string]struct{}, len(policy.AllowedHosts))
+	allowedHosts := make(map[string]struct{}, len(policy.AllowedHosts)+2)
 	for _, host := range policy.AllowedHosts {
 		normalized := strings.ToLower(strings.TrimSpace(host))
 		if normalized == "" {
 			continue
 		}
 		allowedHosts[normalized] = struct{}{}
+		if normalized == "localhost" || isLoopbackIP(normalized) {
+			allowedHosts["localhost"] = struct{}{}
+			allowedHosts["127.0.0.1"] = struct{}{}
+			allowedHosts["::1"] = struct{}{}
+		}
 	}
 	if len(allowedHosts) == 0 {
 		return defaults
 	}
 	return allowedHosts
+}
+
+func isLoopbackIP(host string) bool {
+	ip := net.ParseIP(strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func (e *SafeHTTPExecutor) newClient(timeout time.Duration, policy resolvedNetworkPolicy) *http.Client {

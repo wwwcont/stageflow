@@ -23,6 +23,12 @@ func TestSafeHTTPExecutor_AllowlistValidation(t *testing.T) {
 			want:   "perform request",
 		},
 		{
+			name:   "allows 127.0.0.1 when localhost is allowlisted",
+			config: HTTPExecutorConfig{AllowedHosts: []string{"localhost"}},
+			spec:   domain.RequestSpec{Method: "GET", URLTemplate: "http://127.0.0.1:65530/health"},
+			want:   "perform request",
+		},
+		{
 			name:   "rejects userinfo in url",
 			config: HTTPExecutorConfig{AllowedHosts: []string{"example.internal"}},
 			spec:   domain.RequestSpec{Method: "GET", URLTemplate: "https://user:pass@example.internal/health"},

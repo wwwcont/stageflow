@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"sort"
 	"strings"
@@ -379,12 +380,43 @@ func validateWorkspaceRequestHost(allowedHosts []string, step domain.FlowStep) s
 		return ""
 	}
 	host := strings.ToLower(parsed.Hostname())
-	for _, allowed := range allowedHosts {
-		if host == strings.ToLower(strings.TrimSpace(allowed)) {
+	expandedAllowedHosts := expandLoopbackAllowedHosts(allowedHosts)
+	for _, allowed := range expandedAllowedHosts {
+		if host == allowed {
 			return ""
 		}
 	}
 	return fmt.Sprintf("step %q host %q is outside workspace allowed_hosts", step.Name, host)
+}
+
+func expandLoopbackAllowedHosts(hosts []string) []string {
+	seen := make(map[string]struct{}, len(hosts)+2)
+	expanded := make([]string, 0, len(hosts)+2)
+	for _, host := range hosts {
+		normalized := strings.ToLower(strings.TrimSpace(host))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; !ok {
+			seen[normalized] = struct{}{}
+			expanded = append(expanded, normalized)
+		}
+		if normalized == "localhost" || isLoopbackHost(normalized) {
+			for _, alias := range []string{"localhost", "127.0.0.1", "::1"} {
+				if _, ok := seen[alias]; ok {
+					continue
+				}
+				seen[alias] = struct{}{}
+				expanded = append(expanded, alias)
+			}
+		}
+	}
+	return expanded
+}
+
+func isLoopbackHost(host string) bool {
+	ip := net.ParseIP(strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func dedupeStrings(items []string) []string {

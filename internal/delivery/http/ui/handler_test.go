@@ -404,3 +404,67 @@ func TestHandler_FlowStepImportCurlPreview(t *testing.T) {
 		}
 	}
 }
+
+func TestHandler_FlowStepUpdate_AllowsSwitchFromLocalhostToLoopbackIP(t *testing.T) {
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	workspaceRepo := repository.NewInMemoryWorkspaceRepository(domain.Workspace{
+		ID:          "bootstrap",
+		Name:        "Bootstrap workspace",
+		Slug:        "bootstrap",
+		Description: "Default workspace used in tests.",
+		OwnerTeam:   "platform",
+		Status:      domain.WorkspaceStatusActive,
+		Policy:      domain.WorkspacePolicy{AllowedHosts: []string{"localhost"}, MaxSavedRequests: 10, MaxFlows: 10, MaxStepsPerFlow: 10, MaxRequestBodyBytes: 1024, DefaultTimeoutMS: 1000, MaxRunDurationSeconds: 60, DefaultRetryPolicy: domain.RetryPolicy{Enabled: false}},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	workspaceSvc, err := usecase.NewWorkspaceManagementService(workspaceRepo, clock.System{})
+	if err != nil {
+		t.Fatalf("NewWorkspaceManagementService() error = %v", err)
+	}
+	flowSvc, err := usecase.NewFlowManagementService(workspaceRepo, repository.NewInMemorySavedRequestRepository(), repository.NewInMemoryFlowRepository(), repository.NewInMemoryFlowStepRepository(), clock.System{})
+	if err != nil {
+		t.Fatalf("NewFlowManagementService() error = %v", err)
+	}
+	if _, err := flowSvc.CreateFlow(context.Background(), usecase.CreateFlowCommand{
+		WorkspaceID: "bootstrap",
+		FlowID:      "demo-flow",
+		Name:        "Demo flow",
+		Description: "Flow used for step update testing.",
+		Status:      domain.FlowStatusDraft,
+		Steps: []usecase.FlowStepDraft{{
+			ID:         "step-1",
+			OrderIndex: 0,
+			Name:       "reset sandbox",
+			StepType:   domain.FlowStepTypeInlineRequest,
+			RequestSpec: domain.RequestSpec{
+				Method:      http.MethodPost,
+				URLTemplate: "http://localhost:8091/api/reset",
+				Timeout:     time.Second,
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("CreateFlow() error = %v", err)
+	}
+
+	cfg := config.Config{UI: config.UIConfig{Enabled: true, Prefix: "/ui"}, Runtime: config.RuntimeConfig{AllowedHosts: []string{"localhost"}}}
+	h := NewHandler(cfg, zap.NewNop(), workspaceSvc, fakeSavedRequestSvc{}, flowSvc, fakeRunSvc{}, fakeCurlSvc{}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/ui/workspaces/bootstrap/flows/demo-flow/steps/step-1/edit", strings.NewReader("id=step-1&name=reset+sandbox&step_type=inline_request&method=POST&url=http%3A%2F%2F127.0.0.1%3A8091%2Fapi%2Freset&timeout=1s"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+	if resp.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d, body=%s", resp.Code, http.StatusSeeOther, resp.Body.String())
+	}
+	if got := resp.Header().Get("Location"); got != "/ui/workspaces/bootstrap/flows/demo-flow?lang=en" {
+		t.Fatalf("redirect location = %q, want %q", got, "/ui/workspaces/bootstrap/flows/demo-flow?lang=en")
+	}
+
+	view, err := flowSvc.GetFlow(context.Background(), usecase.GetFlowQuery{WorkspaceID: "bootstrap", FlowID: "demo-flow"})
+	if err != nil {
+		t.Fatalf("GetFlow() error = %v", err)
+	}
+	if got := view.Steps[0].RequestSpec.URLTemplate; got != "http://127.0.0.1:8091/api/reset" {
+		t.Fatalf("RequestSpec.URLTemplate = %q, want %q", got, "http://127.0.0.1:8091/api/reset")
+	}
+}
