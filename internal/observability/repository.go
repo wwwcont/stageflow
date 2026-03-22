@@ -61,6 +61,20 @@ func (r *observedFlowRepository) GetByID(ctx context.Context, id domain.FlowID) 
 	return flow, err
 }
 
+func (r *observedFlowRepository) GetVersion(ctx context.Context, id domain.FlowID, version int) (domain.Flow, error) {
+	ctx, span := startRepoSpan(ctx, "flow.get_version", attribute.String("flow.id", string(id)), attribute.Int("flow.version", version))
+	flow, err := r.next.GetVersion(ctx, id, version)
+	endRepoSpan(span, err)
+	return flow, err
+}
+
+func (r *observedFlowRepository) ListVersions(ctx context.Context, id domain.FlowID) ([]domain.Flow, error) {
+	ctx, span := startRepoSpan(ctx, "flow.list_versions", attribute.String("flow.id", string(id)))
+	flows, err := r.next.ListVersions(ctx, id)
+	endRepoSpan(span, err)
+	return flows, err
+}
+
 func (r *observedFlowRepository) List(ctx context.Context, filter repository.FlowListFilter) ([]domain.Flow, error) {
 	ctx, span := startRepoSpan(ctx, "flow.list")
 	flows, err := r.next.List(ctx, filter)
@@ -85,6 +99,20 @@ func (r *observedFlowStepRepository) ReplaceByFlowID(ctx context.Context, flowID
 func (r *observedFlowStepRepository) ListByFlowID(ctx context.Context, flowID domain.FlowID) ([]domain.FlowStep, error) {
 	ctx, span := startRepoSpan(ctx, "flow_step.list_by_flow_id", attribute.String("flow.id", string(flowID)))
 	steps, err := r.next.ListByFlowID(ctx, flowID)
+	endRepoSpan(span, err)
+	return steps, err
+}
+
+func (r *observedFlowStepRepository) ReplaceByFlowVersion(ctx context.Context, flowID domain.FlowID, version int, steps []domain.FlowStep) error {
+	ctx, span := startRepoSpan(ctx, "flow_step.replace_by_flow_version", attribute.String("flow.id", string(flowID)), attribute.Int("flow.version", version), attribute.Int("steps.count", len(steps)))
+	err := r.next.ReplaceByFlowVersion(ctx, flowID, version, steps)
+	endRepoSpan(span, err)
+	return err
+}
+
+func (r *observedFlowStepRepository) ListByFlowVersion(ctx context.Context, flowID domain.FlowID, version int) ([]domain.FlowStep, error) {
+	ctx, span := startRepoSpan(ctx, "flow_step.list_by_flow_version", attribute.String("flow.id", string(flowID)), attribute.Int("flow.version", version))
+	steps, err := r.next.ListByFlowVersion(ctx, flowID, version)
 	endRepoSpan(span, err)
 	return steps, err
 }

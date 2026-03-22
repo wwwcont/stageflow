@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"stageflow/internal/queue/redisqueue"
 	"stageflow/internal/redisclient"
 	"stageflow/internal/repository"
+	postgresrepo "stageflow/internal/repository/postgres"
 	"stageflow/internal/runevents"
 	"stageflow/internal/usecase"
 	"stageflow/internal/worker"
@@ -32,19 +34,27 @@ type App struct {
 	shutdown func(context.Context) error
 }
 
+type persistence struct {
+	workspaces    repository.WorkspaceRepository
+	savedRequests repository.SavedRequestRepository
+	flows         repository.FlowRepository
+	flowSteps     repository.FlowStepRepository
+	runs          repository.RunRepository
+	runSteps      repository.RunStepRepository
+	runEvents     repository.RunEventRepository
+	close         func() error
+}
+
 func New(ctx context.Context, cfg config.Config) (*App, error) {
 	obs, err := observability.Setup(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("setup observability: %w", err)
 	}
 
-	workspaceRepo := repository.NewInMemoryWorkspaceRepository(bootstrapWorkspace(cfg))
-	savedRequestRepo := repository.NewInMemorySavedRequestRepository()
-	flowRepo := observability.WrapFlowRepository(repository.NewInMemoryFlowRepository())
-	flowStepRepo := observability.WrapFlowStepRepository(repository.NewInMemoryFlowStepRepository())
-	runRepo := observability.WrapRunRepository(repository.NewInMemoryRunRepository(), obs.Metrics)
-	runStepRepo := observability.WrapRunStepRepository(repository.NewInMemoryRunStepRepository())
-	runEventRepo := repository.NewInMemoryRunEventRepository()
+	persistenceLayer, err := initPersistence(ctx, cfg, obs.Metrics)
+	if err != nil {
+		return nil, fmt.Errorf("init persistence: %w", err)
+	}
 	runEventBroker := runevents.NewBroker()
 	allowLoopbackHosts, allowIPHosts := executorHostPolicies(cfg.Runtime.AllowedHosts)
 	httpExecutor, err := execution.NewSafeHTTPExecutor(execution.HTTPExecutorConfig{
@@ -57,12 +67,12 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	httpExecutor.SetLogger(obs.Logger)
 	engine, err := execution.NewSequentialEngine(
-		workspaceRepo,
-		savedRequestRepo,
-		flowRepo,
-		flowStepRepo,
-		runRepo,
-		runStepRepo,
+		persistenceLayer.workspaces,
+		persistenceLayer.savedRequests,
+		persistenceLayer.flows,
+		persistenceLayer.flowSteps,
+		persistenceLayer.runs,
+		persistenceLayer.runSteps,
 		execution.NewDefaultTemplateRenderer(),
 		httpExecutor,
 		execution.NewDefaultExtractor(),
@@ -91,7 +101,7 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	backgroundWorker, err := worker.NewService(
 		runQueue,
-		runRepo,
+		persistenceLayer.runs,
 		engine,
 		obs.Logger,
 		clock.System{},
@@ -107,33 +117,54 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		},
 	)
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build worker: %w", err)
 	}
 	idFactory := usecase.NewMonotonicRunIDFactory(uint64(time.Now().UTC().UnixNano()))
 
-	flowManagement, err := usecase.NewFlowManagementService(workspaceRepo, savedRequestRepo, flowRepo, flowStepRepo, clock.System{})
+	flowManagement, err := usecase.NewFlowManagementService(persistenceLayer.workspaces, persistenceLayer.savedRequests, persistenceLayer.flows, persistenceLayer.flowSteps, clock.System{})
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build flow management service: %w", err)
 	}
-	workspaceManagement, err := usecase.NewWorkspaceManagementService(workspaceRepo, clock.System{})
+	workspaceManagement, err := usecase.NewWorkspaceManagementService(persistenceLayer.workspaces, clock.System{})
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build workspace management service: %w", err)
 	}
-	savedRequestManagement, err := usecase.NewSavedRequestManagementService(workspaceRepo, savedRequestRepo, clock.System{})
+	savedRequestManagement, err := usecase.NewSavedRequestManagementService(persistenceLayer.workspaces, persistenceLayer.savedRequests, clock.System{})
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build saved request management service: %w", err)
 	}
-	runService, err := usecase.NewRunCoordinator(workspaceRepo, savedRequestRepo, flowRepo, flowStepRepo, runRepo, runStepRepo, dispatcher, idFactory, cfg.Runtime.DefaultRunQueue)
+	runService, err := usecase.NewRunCoordinator(persistenceLayer.workspaces, persistenceLayer.savedRequests, persistenceLayer.flows, persistenceLayer.flowSteps, persistenceLayer.runs, persistenceLayer.runSteps, dispatcher, idFactory, cfg.Runtime.DefaultRunQueue)
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build flow service: %w", err)
 	}
 	curlImport, err := usecase.NewCurlImportService(usecase.NewDefaultCurlCommandParser())
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build curl import service: %w", err)
 	}
 
-	runEventService, err := usecase.NewRunEventService(runRepo, runEventRepo, runEventBroker, clock.System{})
+	runEventService, err := usecase.NewRunEventService(persistenceLayer.runs, persistenceLayer.runEvents, runEventBroker, clock.System{})
 	if err != nil {
+		if persistenceLayer.close != nil {
+			_ = persistenceLayer.close()
+		}
 		return nil, fmt.Errorf("build run event service: %w", err)
 	}
 	engine.SetEventPublisher(runEventService)
@@ -141,7 +172,14 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 	backgroundWorker.SetMetrics(obs.Metrics)
 	httpServer := deliveryhttp.NewServer(cfg, obs.Logger, obs.Metrics, workspaceManagement, savedRequestManagement, flowManagement, runService, curlImport, runEventService)
 
-	return &App{config: cfg, logger: obs.Logger, http: httpServer, worker: backgroundWorker, shutdown: obs.Shutdown}, nil
+	shutdown := combineShutdowns(obs.Shutdown, func(context.Context) error {
+		if persistenceLayer.close == nil {
+			return nil
+		}
+		return persistenceLayer.close()
+	})
+
+	return &App{config: cfg, logger: obs.Logger, http: httpServer, worker: backgroundWorker, shutdown: shutdown}, nil
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -243,5 +281,82 @@ func bootstrapWorkspace(cfg config.Config) domain.Workspace {
 		},
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+}
+
+func initPersistence(ctx context.Context, cfg config.Config, metrics *observability.Metrics) (persistence, error) {
+	switch cfg.Runtime.StorageBackend {
+	case "postgres":
+		db, err := sql.Open(cfg.Postgres.Driver, cfg.Postgres.DSN)
+		if err != nil {
+			return persistence{}, fmt.Errorf("open postgres database: %w", err)
+		}
+		db.SetMaxOpenConns(cfg.Postgres.MaxOpenConns)
+		db.SetMaxIdleConns(cfg.Postgres.MaxIdleConns)
+		db.SetConnMaxLifetime(cfg.Postgres.ConnMaxLifetime)
+		if err := db.PingContext(ctx); err != nil {
+			_ = db.Close()
+			return persistence{}, fmt.Errorf("ping postgres database: %w", err)
+		}
+		workspaceRepo := postgresrepo.NewWorkspaceRepository(db)
+		if err := ensureBootstrapWorkspace(ctx, workspaceRepo, bootstrapWorkspace(cfg)); err != nil {
+			_ = db.Close()
+			return persistence{}, err
+		}
+		return persistence{
+			workspaces:    workspaceRepo,
+			savedRequests: postgresrepo.NewSavedRequestRepository(db),
+			flows:         observability.WrapFlowRepository(postgresrepo.NewFlowRepository(db)),
+			flowSteps:     observability.WrapFlowStepRepository(postgresrepo.NewFlowStepRepository(db)),
+			runs:          observability.WrapRunRepository(postgresrepo.NewRunRepository(db), metrics),
+			runSteps:      observability.WrapRunStepRepository(postgresrepo.NewRunStepRepository(db)),
+			runEvents:     postgresrepo.NewRunEventRepository(db),
+			close:         db.Close,
+		}, nil
+	default:
+		workspaceRepo := repository.NewInMemoryWorkspaceRepository(bootstrapWorkspace(cfg))
+		return persistence{
+			workspaces:    workspaceRepo,
+			savedRequests: repository.NewInMemorySavedRequestRepository(),
+			flows:         observability.WrapFlowRepository(repository.NewInMemoryFlowRepository()),
+			flowSteps:     observability.WrapFlowStepRepository(repository.NewInMemoryFlowStepRepository()),
+			runs:          observability.WrapRunRepository(repository.NewInMemoryRunRepository(), metrics),
+			runSteps:      observability.WrapRunStepRepository(repository.NewInMemoryRunStepRepository()),
+			runEvents:     repository.NewInMemoryRunEventRepository(),
+		}, nil
+	}
+}
+
+func ensureBootstrapWorkspace(ctx context.Context, repo repository.WorkspaceRepository, workspace domain.Workspace) error {
+	if _, err := repo.GetByID(ctx, workspace.ID); err == nil {
+		return nil
+	} else {
+		var notFound *domain.NotFoundError
+		if !errors.As(err, &notFound) {
+			return fmt.Errorf("get bootstrap workspace: %w", err)
+		}
+	}
+	if err := repo.Create(ctx, workspace); err != nil {
+		var conflict *domain.ConflictError
+		if errors.As(err, &conflict) {
+			return nil
+		}
+		return fmt.Errorf("create bootstrap workspace: %w", err)
+	}
+	return nil
+}
+
+func combineShutdowns(items ...func(context.Context) error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		var errs []error
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			if err := item(ctx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
 	}
 }

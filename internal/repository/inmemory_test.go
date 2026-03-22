@@ -74,3 +74,52 @@ func TestInMemoryFlowStepRepository_ListByFlowID_EmptyFlowReturnsEmptySlice(t *t
 		t.Fatalf("len(steps) = %d, want 0", len(steps))
 	}
 }
+
+func TestInMemoryFlowRepositories_PreserveVersionSnapshots(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	flowRepo := NewInMemoryFlowRepository()
+	stepRepo := NewInMemoryFlowStepRepository()
+
+	flow := domain.Flow{WorkspaceID: "workspace-a", ID: "flow-versioned", Name: "Versioned", Version: 1, Status: domain.FlowStatusDraft, CreatedAt: now, UpdatedAt: now}
+	if err := flowRepo.Create(ctx, flow); err != nil {
+		t.Fatalf("Create(flow) error = %v", err)
+	}
+	v1Steps := []domain.FlowStep{{ID: "step-v1", FlowID: flow.ID, OrderIndex: 0, Name: "v1", RequestSpec: domain.RequestSpec{Method: "GET", URLTemplate: "https://svc.internal/v1"}, ExtractionSpec: domain.ExtractionSpec{}, AssertionSpec: domain.AssertionSpec{}, CreatedAt: now, UpdatedAt: now}}
+	if err := stepRepo.ReplaceByFlowID(ctx, flow.ID, v1Steps); err != nil {
+		t.Fatalf("ReplaceByFlowID(v1) error = %v", err)
+	}
+	if err := stepRepo.ReplaceByFlowVersion(ctx, flow.ID, 1, v1Steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(v1) error = %v", err)
+	}
+
+	flow.Version = 2
+	flow.Name = "Versioned v2"
+	flow.Status = domain.FlowStatusActive
+	flow.UpdatedAt = now.Add(time.Minute)
+	if err := flowRepo.Update(ctx, flow); err != nil {
+		t.Fatalf("Update(flow) error = %v", err)
+	}
+	v2Steps := []domain.FlowStep{{ID: "step-v2", FlowID: flow.ID, OrderIndex: 0, Name: "v2", RequestSpec: domain.RequestSpec{Method: "GET", URLTemplate: "https://svc.internal/v2"}, ExtractionSpec: domain.ExtractionSpec{}, AssertionSpec: domain.AssertionSpec{}, CreatedAt: now.Add(time.Minute), UpdatedAt: now.Add(time.Minute)}}
+	if err := stepRepo.ReplaceByFlowID(ctx, flow.ID, v2Steps); err != nil {
+		t.Fatalf("ReplaceByFlowID(v2) error = %v", err)
+	}
+	if err := stepRepo.ReplaceByFlowVersion(ctx, flow.ID, 2, v2Steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(v2) error = %v", err)
+	}
+
+	versionOne, err := flowRepo.GetVersion(ctx, flow.ID, 1)
+	if err != nil {
+		t.Fatalf("GetVersion(v1) error = %v", err)
+	}
+	if versionOne.Name != "Versioned" || versionOne.Version != 1 {
+		t.Fatalf("versionOne = %#v", versionOne)
+	}
+	versionOneSteps, err := stepRepo.ListByFlowVersion(ctx, flow.ID, 1)
+	if err != nil {
+		t.Fatalf("ListByFlowVersion(v1) error = %v", err)
+	}
+	if len(versionOneSteps) != 1 || versionOneSteps[0].Name != "v1" {
+		t.Fatalf("versionOneSteps = %#v", versionOneSteps)
+	}
+}

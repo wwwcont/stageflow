@@ -51,25 +51,50 @@ func (fakeFlowSvc) ValidateFlow(context.Context, usecase.ValidateFlowCommand) (u
 	return usecase.FlowValidationResult{Valid: true}, nil
 }
 
-type fakeRunSvc struct{}
+type fakeRunSvc struct {
+	launchFlowFn         func(usecase.LaunchFlowInput) (domain.FlowRun, error)
+	launchSavedRequestFn func(usecase.LaunchSavedRequestInput) (domain.FlowRun, error)
+	runSavedRequestFn    func(usecase.LaunchSavedRequestInput) (domain.FlowRun, error)
+	getRunStatusFn       func(usecase.GetRunStatusQuery) (usecase.RunStatusView, error)
+	listRunsFn           func(usecase.ListRunsQuery) ([]domain.FlowRun, error)
+	rerunFn              func(usecase.RerunInput) (domain.FlowRun, error)
+}
 
-func (fakeRunSvc) LaunchFlow(context.Context, usecase.LaunchFlowInput) (domain.FlowRun, error) {
-	return domain.FlowRun{}, nil
+func (f fakeRunSvc) LaunchFlow(_ context.Context, input usecase.LaunchFlowInput) (domain.FlowRun, error) {
+	if f.launchFlowFn == nil {
+		return domain.FlowRun{}, nil
+	}
+	return f.launchFlowFn(input)
 }
-func (fakeRunSvc) LaunchSavedRequest(context.Context, usecase.LaunchSavedRequestInput) (domain.FlowRun, error) {
-	return domain.FlowRun{}, nil
+func (f fakeRunSvc) LaunchSavedRequest(_ context.Context, input usecase.LaunchSavedRequestInput) (domain.FlowRun, error) {
+	if f.launchSavedRequestFn == nil {
+		return domain.FlowRun{}, nil
+	}
+	return f.launchSavedRequestFn(input)
 }
-func (fakeRunSvc) RunSavedRequest(context.Context, usecase.LaunchSavedRequestInput) (domain.FlowRun, error) {
-	return domain.FlowRun{}, nil
+func (f fakeRunSvc) RunSavedRequest(_ context.Context, input usecase.LaunchSavedRequestInput) (domain.FlowRun, error) {
+	if f.runSavedRequestFn == nil {
+		return domain.FlowRun{}, nil
+	}
+	return f.runSavedRequestFn(input)
 }
-func (fakeRunSvc) GetRunStatus(context.Context, usecase.GetRunStatusQuery) (usecase.RunStatusView, error) {
-	return usecase.RunStatusView{}, &domain.NotFoundError{Entity: "run", ID: "missing"}
+func (f fakeRunSvc) GetRunStatus(_ context.Context, query usecase.GetRunStatusQuery) (usecase.RunStatusView, error) {
+	if f.getRunStatusFn == nil {
+		return usecase.RunStatusView{}, &domain.NotFoundError{Entity: "run", ID: "missing"}
+	}
+	return f.getRunStatusFn(query)
 }
-func (fakeRunSvc) ListRuns(context.Context, usecase.ListRunsQuery) ([]domain.FlowRun, error) {
-	return nil, nil
+func (f fakeRunSvc) ListRuns(_ context.Context, query usecase.ListRunsQuery) ([]domain.FlowRun, error) {
+	if f.listRunsFn == nil {
+		return nil, nil
+	}
+	return f.listRunsFn(query)
 }
-func (fakeRunSvc) Rerun(context.Context, usecase.RerunInput) (domain.FlowRun, error) {
-	return domain.FlowRun{}, nil
+func (f fakeRunSvc) Rerun(_ context.Context, input usecase.RerunInput) (domain.FlowRun, error) {
+	if f.rerunFn == nil {
+		return domain.FlowRun{}, nil
+	}
+	return f.rerunFn(input)
 }
 
 type fakeCurlSvc struct {
@@ -603,5 +628,88 @@ func TestHandler_RunEventsStream_DisablesProxyBuffering(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body.String(), ": stream-open") {
 		t.Fatalf("body missing initial stream-open comment: %s", resp.Body.String())
+	}
+}
+
+func TestHandler_RunDetails_UsesRunFlowVersionSnapshot(t *testing.T) {
+	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+	workspaceRepo := repository.NewInMemoryWorkspaceRepository(domain.Workspace{
+		ID:          "bootstrap",
+		Name:        "Bootstrap workspace",
+		Slug:        "bootstrap",
+		Description: "Default workspace used in tests.",
+		OwnerTeam:   "platform",
+		Status:      domain.WorkspaceStatusActive,
+		Policy:      domain.WorkspacePolicy{AllowedHosts: []string{"example.internal"}, MaxSavedRequests: 10, MaxFlows: 10, MaxStepsPerFlow: 10, MaxRequestBodyBytes: 1024, DefaultTimeoutMS: 1000, MaxRunDurationSeconds: 60, DefaultRetryPolicy: domain.RetryPolicy{Enabled: false}},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	workspaceSvc, err := usecase.NewWorkspaceManagementService(workspaceRepo, clock.System{})
+	if err != nil {
+		t.Fatalf("NewWorkspaceManagementService() error = %v", err)
+	}
+	flowSvc, err := usecase.NewFlowManagementService(workspaceRepo, repository.NewInMemorySavedRequestRepository(), repository.NewInMemoryFlowRepository(), repository.NewInMemoryFlowStepRepository(), clock.System{})
+	if err != nil {
+		t.Fatalf("NewFlowManagementService() error = %v", err)
+	}
+	if _, err := flowSvc.CreateFlow(context.Background(), usecase.CreateFlowCommand{
+		WorkspaceID: "bootstrap",
+		FlowID:      "demo-flow",
+		Name:        "Version one",
+		Status:      domain.FlowStatusDraft,
+		Steps: []usecase.FlowStepDraft{{
+			ID:          "step-v1",
+			OrderIndex:  0,
+			Name:        "call-v1",
+			RequestSpec: domain.RequestSpec{Method: "GET", URLTemplate: "https://example.internal/v1"},
+		}},
+	}); err != nil {
+		t.Fatalf("CreateFlow() error = %v", err)
+	}
+	if _, err := flowSvc.UpdateFlow(context.Background(), usecase.UpdateFlowCommand{
+		WorkspaceID: "bootstrap",
+		FlowID:      "demo-flow",
+		Name:        "Version two",
+		Status:      domain.FlowStatusActive,
+		Steps: []usecase.FlowStepDraft{{
+			ID:          "step-v2",
+			OrderIndex:  0,
+			Name:        "call-v2",
+			RequestSpec: domain.RequestSpec{Method: "GET", URLTemplate: "https://example.internal/v2"},
+		}},
+	}); err != nil {
+		t.Fatalf("UpdateFlow() error = %v", err)
+	}
+
+	runSvc := fakeRunSvc{
+		getRunStatusFn: func(usecase.GetRunStatusQuery) (usecase.RunStatusView, error) {
+			return usecase.RunStatusView{Run: domain.FlowRun{
+				ID:          "run-1",
+				WorkspaceID: "bootstrap",
+				FlowID:      "demo-flow",
+				FlowVersion: 1,
+				Status:      domain.RunStatusSucceeded,
+				InitiatedBy: "alice",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}}, nil
+		},
+	}
+
+	cfg := config.Config{UI: config.UIConfig{Enabled: true, Prefix: "/ui"}, Runtime: config.RuntimeConfig{AllowedHosts: []string{"example.internal"}}}
+	h := NewHandler(cfg, zap.NewNop(), workspaceSvc, fakeSavedRequestSvc{}, flowSvc, runSvc, fakeCurlSvc{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/runs/run-1?workspace_id=bootstrap", nil)
+	resp := httptest.NewRecorder()
+	h.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "Version one") {
+		t.Fatalf("body missing versioned flow name: %s", body)
+	}
+	if !strings.Contains(body, "Flow version") || !strings.Contains(body, ">1<") {
+		t.Fatalf("body missing flow version details: %s", body)
 	}
 }

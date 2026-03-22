@@ -355,19 +355,16 @@ func (e *SequentialEngine) loadDefinition(ctx context.Context, runID domain.RunI
 func (e *SequentialEngine) loadExecutionSteps(ctx context.Context, run domain.FlowRun, workspace domain.Workspace) ([]domain.FlowStep, error) {
 	switch run.Target() {
 	case domain.RunTargetTypeFlow:
-		flow, err := e.flows.GetByID(ctx, run.FlowID)
+		flow, err := e.flows.GetVersion(ctx, run.FlowID, run.FlowVersion)
 		if err != nil {
-			return nil, fmt.Errorf("get flow %q: %w", run.FlowID, err)
+			return nil, fmt.Errorf("get flow %q version %d: %w", run.FlowID, run.FlowVersion, err)
 		}
 		if err := flow.Validate(); err != nil {
 			return nil, err
 		}
-		if run.FlowVersion != flow.Version {
-			return nil, &domain.ExecutionError{Operation: "load flow definition", Cause: fmt.Errorf("run version %d does not match flow version %d", run.FlowVersion, flow.Version)}
-		}
-		steps, err := e.flowSteps.ListByFlowID(ctx, run.FlowID)
+		steps, err := e.flowSteps.ListByFlowVersion(ctx, run.FlowID, run.FlowVersion)
 		if err != nil {
-			return nil, fmt.Errorf("list flow %q steps: %w", run.FlowID, err)
+			return nil, fmt.Errorf("list flow %q version %d steps: %w", run.FlowID, run.FlowVersion, err)
 		}
 		return e.resolveExecutionSteps(ctx, workspace, steps)
 	case domain.RunTargetTypeSavedRequest:

@@ -465,12 +465,22 @@ func (r *FlowRepository) Create(ctx context.Context, flow domain.Flow) error {
 	if err := flow.Validate(); err != nil {
 		return err
 	}
+	tx, err := beginTx(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	const query = `
 		INSERT INTO flows (id, workspace_id, name, description, version, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-	_, err := r.db.ExecContext(ctx, query, flow.ID, flow.WorkspaceID, flow.Name, flow.Description, flow.Version, flow.Status, flow.CreatedAt, flow.UpdatedAt)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, query, flow.ID, flow.WorkspaceID, flow.Name, flow.Description, flow.Version, flow.Status, flow.CreatedAt, flow.UpdatedAt); err != nil {
 		return fmt.Errorf("insert flow: %w", mapDBError(err, "flow"))
+	}
+	if err := insertFlowVersion(ctx, tx, flow); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit flow create tx: %w", err)
 	}
 	return nil
 }
@@ -479,16 +489,27 @@ func (r *FlowRepository) Update(ctx context.Context, flow domain.Flow) error {
 	if err := flow.Validate(); err != nil {
 		return err
 	}
+	tx, err := beginTx(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	const query = `
 		UPDATE flows
 		SET workspace_id = $2, name = $3, description = $4, version = $5, status = $6, updated_at = $7
 		WHERE id = $1`
-	result, err := r.db.ExecContext(ctx, query, flow.ID, flow.WorkspaceID, flow.Name, flow.Description, flow.Version, flow.Status, flow.UpdatedAt)
+	result, err := tx.ExecContext(ctx, query, flow.ID, flow.WorkspaceID, flow.Name, flow.Description, flow.Version, flow.Status, flow.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("update flow %q: %w", flow.ID, mapDBError(err, "flow"))
 	}
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return &domain.NotFoundError{Entity: "flow", ID: string(flow.ID)}
+	}
+	if err := insertFlowVersion(ctx, tx, flow); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit flow update tx: %w", err)
 	}
 	return nil
 }
@@ -503,6 +524,44 @@ func (r *FlowRepository) GetByID(ctx context.Context, id domain.FlowID) (domain.
 		return domain.Flow{}, fmt.Errorf("select flow %q: %w", id, mapDBError(err, "flow"))
 	}
 	return flow, nil
+}
+
+func (r *FlowRepository) GetVersion(ctx context.Context, id domain.FlowID, version int) (domain.Flow, error) {
+	const query = `
+		SELECT flow_id, workspace_id, name, description, version, status, created_at, updated_at
+		FROM flow_versions
+		WHERE flow_id = $1 AND version = $2`
+	var flow domain.Flow
+	if err := r.db.QueryRowContext(ctx, query, id, version).Scan(&flow.ID, &flow.WorkspaceID, &flow.Name, &flow.Description, &flow.Version, &flow.Status, &flow.CreatedAt, &flow.UpdatedAt); err != nil {
+		return domain.Flow{}, fmt.Errorf("select flow version %q@v%d: %w", id, version, mapDBError(err, "flow version"))
+	}
+	return flow, nil
+}
+
+func (r *FlowRepository) ListVersions(ctx context.Context, id domain.FlowID) ([]domain.Flow, error) {
+	const query = `
+		SELECT flow_id, workspace_id, name, description, version, status, created_at, updated_at
+		FROM flow_versions
+		WHERE flow_id = $1
+		ORDER BY version DESC`
+	rows, err := r.db.QueryContext(ctx, query, id)
+	if err != nil {
+		return nil, fmt.Errorf("list flow versions for %q: %w", id, err)
+	}
+	defer rows.Close()
+
+	flows := make([]domain.Flow, 0)
+	for rows.Next() {
+		var flow domain.Flow
+		if err := rows.Scan(&flow.ID, &flow.WorkspaceID, &flow.Name, &flow.Description, &flow.Version, &flow.Status, &flow.CreatedAt, &flow.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan flow version: %w", err)
+		}
+		flows = append(flows, flow)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate flow versions: %w", err)
+	}
+	return flows, nil
 }
 
 func (r *FlowRepository) List(ctx context.Context, filter repository.FlowListFilter) ([]domain.Flow, error) {
@@ -648,6 +707,53 @@ func (r *FlowStepRepository) ReplaceByFlowID(ctx context.Context, flowID domain.
 	return nil
 }
 
+func (r *FlowStepRepository) ReplaceByFlowVersion(ctx context.Context, flowID domain.FlowID, version int, steps []domain.FlowStep) error {
+	if version < 1 {
+		return &domain.ValidationError{Message: "flow version must be >= 1"}
+	}
+	tx, err := beginTx(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM flow_step_versions WHERE flow_id = $1 AND version = $2`, flowID, version); err != nil {
+		return fmt.Errorf("delete flow version %q@v%d steps: %w", flowID, version, err)
+	}
+	if len(steps) > 0 {
+		const query = `
+			INSERT INTO flow_step_versions (id, flow_id, version, order_index, name, step_type, saved_request_id, request_spec, request_spec_override, extraction_spec, assertion_spec, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
+		for _, step := range steps {
+			if err := step.Validate(); err != nil {
+				return err
+			}
+			requestSpec, err := marshalJSON(step.RequestSpec, "request_spec")
+			if err != nil {
+				return err
+			}
+			requestSpecOverride, err := marshalJSON(step.RequestSpecOverride, "request_spec_override")
+			if err != nil {
+				return err
+			}
+			extractionSpec, err := marshalJSON(step.ExtractionSpec, "extraction_spec")
+			if err != nil {
+				return err
+			}
+			assertionSpec, err := marshalJSON(step.AssertionSpec, "assertion_spec")
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, query, step.ID, step.FlowID, version, step.OrderIndex, step.Name, step.Type(), nullableString(step.SavedRequestID), requestSpec, requestSpecOverride, extractionSpec, assertionSpec, step.CreatedAt, step.UpdatedAt); err != nil {
+				return fmt.Errorf("replace flow version step %q: %w", step.ID, mapDBError(err, "flow step version"))
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit replace flow version steps tx: %w", err)
+	}
+	return nil
+}
+
 func (r *FlowStepRepository) ListByFlowID(ctx context.Context, flowID domain.FlowID) ([]domain.FlowStep, error) {
 	const query = `
 		SELECT id, flow_id, order_index, name, step_type, saved_request_id, request_spec, request_spec_override, extraction_spec, assertion_spec, created_at, updated_at
@@ -694,6 +800,56 @@ func (r *FlowStepRepository) ListByFlowID(ctx context.Context, flowID domain.Flo
 	return steps, nil
 }
 
+func (r *FlowStepRepository) ListByFlowVersion(ctx context.Context, flowID domain.FlowID, version int) ([]domain.FlowStep, error) {
+	const query = `
+		SELECT id, flow_id, order_index, name, step_type, saved_request_id, request_spec, request_spec_override, extraction_spec, assertion_spec, created_at, updated_at
+		FROM flow_step_versions
+		WHERE flow_id = $1 AND version = $2
+		ORDER BY order_index ASC`
+	rows, err := r.db.QueryContext(ctx, query, flowID, version)
+	if err != nil {
+		return nil, fmt.Errorf("select flow version steps for %q@v%d: %w", flowID, version, err)
+	}
+	defer rows.Close()
+	return scanFlowSteps(rows)
+}
+
+func scanFlowSteps(rows *sql.Rows) ([]domain.FlowStep, error) {
+	steps := make([]domain.FlowStep, 0)
+	for rows.Next() {
+		var (
+			step               domain.FlowStep
+			savedRequestID     sql.NullString
+			requestRaw         []byte
+			requestOverrideRaw []byte
+			extractionRaw      []byte
+			assertionRaw       []byte
+		)
+		if err := rows.Scan(&step.ID, &step.FlowID, &step.OrderIndex, &step.Name, &step.StepType, &savedRequestID, &requestRaw, &requestOverrideRaw, &extractionRaw, &assertionRaw, &step.CreatedAt, &step.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan flow step: %w", err)
+		}
+		step.SavedRequestID = domain.SavedRequestID(savedRequestID.String)
+		var err error
+		if step.RequestSpec, err = unmarshalJSON[domain.RequestSpec](requestRaw, "request_spec"); err != nil {
+			return nil, err
+		}
+		if step.RequestSpecOverride, err = unmarshalJSON[domain.RequestSpecOverride](requestOverrideRaw, "request_spec_override"); err != nil {
+			return nil, err
+		}
+		if step.ExtractionSpec, err = unmarshalJSON[domain.ExtractionSpec](extractionRaw, "extraction_spec"); err != nil {
+			return nil, err
+		}
+		if step.AssertionSpec, err = unmarshalJSON[domain.AssertionSpec](assertionRaw, "assertion_spec"); err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate flow steps: %w", err)
+	}
+	return steps, nil
+}
+
 var _ repository.FlowRepository = (*FlowRepository)(nil)
 var _ repository.FlowStepRepository = (*FlowStepRepository)(nil)
 var _ repository.WorkspaceRepository = (*WorkspaceRepository)(nil)
@@ -710,4 +866,14 @@ func nullableString[T ~string](value T) any {
 
 type sqlExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertFlowVersion(ctx context.Context, exec sqlExecutor, flow domain.Flow) error {
+	const query = `
+		INSERT INTO flow_versions (flow_id, workspace_id, version, name, description, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	if _, err := exec.ExecContext(ctx, query, flow.ID, flow.WorkspaceID, flow.Version, flow.Name, flow.Description, flow.Status, flow.CreatedAt, flow.UpdatedAt); err != nil {
+		return fmt.Errorf("insert flow version %q@v%d: %w", flow.ID, flow.Version, mapDBError(err, "flow version"))
+	}
+	return nil
 }

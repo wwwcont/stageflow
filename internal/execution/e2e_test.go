@@ -81,6 +81,9 @@ func TestStageFlow_EndToEnd_RunExecutionWithDependentSteps(t *testing.T) {
 	if err := flowStepRepo.ReplaceByFlowID(ctx, flow.ID, steps); err != nil {
 		t.Fatalf("ReplaceByFlowID() error = %v", err)
 	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion() error = %v", err)
+	}
 
 	run := domain.FlowRun{ID: "run-e2e", WorkspaceID: flow.WorkspaceID, FlowID: flow.ID, FlowVersion: flow.Version, Status: domain.RunStatusQueued, InputJSON: json.RawMessage(`{}`), InitiatedBy: "test"}
 	if err := runRepo.Create(ctx, run); err != nil {

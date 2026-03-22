@@ -77,6 +77,7 @@ type ValidateFlowCommand struct {
 type GetFlowQuery struct {
 	WorkspaceID domain.WorkspaceID
 	FlowID      domain.FlowID
+	Version     int
 }
 
 type ListFlowsQuery struct {

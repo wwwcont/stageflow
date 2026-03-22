@@ -79,6 +79,8 @@ type FlowRepository interface {
 	Create(ctx context.Context, flow domain.Flow) error
 	Update(ctx context.Context, flow domain.Flow) error
 	GetByID(ctx context.Context, id domain.FlowID) (domain.Flow, error)
+	GetVersion(ctx context.Context, id domain.FlowID, version int) (domain.Flow, error)
+	ListVersions(ctx context.Context, id domain.FlowID) ([]domain.Flow, error)
 	List(ctx context.Context, filter FlowListFilter) ([]domain.Flow, error)
 }
 
@@ -87,6 +89,8 @@ type FlowStepRepository interface {
 	CreateMany(ctx context.Context, steps []domain.FlowStep) error
 	ReplaceByFlowID(ctx context.Context, flowID domain.FlowID, steps []domain.FlowStep) error
 	ListByFlowID(ctx context.Context, flowID domain.FlowID) ([]domain.FlowStep, error)
+	ReplaceByFlowVersion(ctx context.Context, flowID domain.FlowID, version int, steps []domain.FlowStep) error
+	ListByFlowVersion(ctx context.Context, flowID domain.FlowID, version int) ([]domain.FlowStep, error)
 }
 
 // RunRepository сохраняет переходы состояний запуска и связанные с запуском метаданные.

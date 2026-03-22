@@ -15,6 +15,7 @@ type services struct {
 	savedRequestManagement usecase.SavedRequestManagementUseCase
 	flowManagement         usecase.FlowManagementUseCase
 	runService             usecase.RunService
+	runEvents              usecase.RunEventUseCase
 	curlImport             usecase.CurlImportUseCase
 }
 
@@ -86,7 +87,12 @@ func (h *handler) getFlow(w http.ResponseWriter, r *http.Request) {
 		writeValidationError(w, r, "workspace_id query parameter is required", nil)
 		return
 	}
-	view, err := h.services.flowManagement.GetFlow(r.Context(), usecase.GetFlowQuery{WorkspaceID: workspaceID, FlowID: domain.FlowID(flowIDFromRequest(r))})
+	version, err := parseOptionalVersion(r.URL.Query().Get("version"))
+	if err != nil {
+		writeValidationError(w, r, "version must be a positive integer", nil)
+		return
+	}
+	view, err := h.services.flowManagement.GetFlow(r.Context(), usecase.GetFlowQuery{WorkspaceID: workspaceID, FlowID: domain.FlowID(flowIDFromRequest(r)), Version: version})
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -200,6 +206,37 @@ func (h *handler) getRunSteps(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, listResponse[runStepResponse]{Items: items})
 }
 
+func (h *handler) getRunEvents(w http.ResponseWriter, r *http.Request) {
+	if h.services.runEvents == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "run events are not configured"})
+		return
+	}
+	workspaceID := domain.WorkspaceID(strings.TrimSpace(r.URL.Query().Get("workspace_id")))
+	after := int64(0)
+	if raw := strings.TrimSpace(r.URL.Query().Get("after")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			writeValidationError(w, r, "after must be a non-negative integer", nil)
+			return
+		}
+		after = parsed
+	}
+	items, err := h.services.runEvents.ListRunEvents(r.Context(), usecase.ListRunEventsQuery{
+		WorkspaceID:   workspaceID,
+		RunID:         domain.RunID(r.PathValue("id")),
+		AfterSequence: after,
+	})
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	responseItems := make([]runEventResponse, 0, len(items))
+	for _, item := range items {
+		responseItems = append(responseItems, mapRunEvent(item))
+	}
+	writeJSON(w, http.StatusOK, listResponse[runEventResponse]{Items: responseItems})
+}
+
 func (h *handler) rerun(w http.ResponseWriter, r *http.Request) {
 	var request rerunRequest
 	if err := decodeJSON(r, &request); err != nil {
@@ -245,6 +282,18 @@ func (h *handler) importCurl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, importCurlResponse{RequestSpec: mapRequestSpec(result.RequestSpec)})
+}
+
+func parseOptionalVersion(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	version, err := strconv.Atoi(raw)
+	if err != nil || version < 1 {
+		return 0, fmt.Errorf("version must be a positive integer")
+	}
+	return version, nil
 }
 
 func parsePagination(r *http.Request) (int, int, error) {

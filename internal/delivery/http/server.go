@@ -26,6 +26,7 @@ func NewServer(cfg config.Config, logger *zap.Logger, metrics *observability.Met
 		savedRequestManagement: savedRequestManagement,
 		flowManagement:         flowManagement,
 		runService:             runService,
+		runEvents:              runEvents,
 		curlImport:             curlImport,
 	})
 	mux.HandleFunc("GET /healthz", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
@@ -65,6 +66,7 @@ func NewServer(cfg config.Config, logger *zap.Logger, metrics *observability.Met
 	mux.HandleFunc("POST /api/v1/workspaces/{id}/flows/{flowId}/runs", h.launchRun)
 	mux.HandleFunc("GET /api/v1/runs/{id}", h.getRun)
 	mux.HandleFunc("GET /api/v1/runs/{id}/steps", h.getRunSteps)
+	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.getRunEvents)
 	mux.HandleFunc("POST /api/v1/runs/{id}/rerun", h.rerun)
 	mux.HandleFunc("POST /api/v1/import/curl", h.importCurl)
 	if cfg.UI.Enabled {

@@ -82,22 +82,43 @@ func (fakeSavedRequestManagementUseCase) ListSavedRequests(context.Context, usec
 	return nil, nil
 }
 
-type fakeFlowManagementUseCase struct{}
+type fakeFlowManagementUseCase struct {
+	createFn   func(usecase.CreateFlowCommand) (usecase.FlowDefinitionView, error)
+	updateFn   func(usecase.UpdateFlowCommand) (usecase.FlowDefinitionView, error)
+	getFn      func(usecase.GetFlowQuery) (usecase.FlowDefinitionView, error)
+	listFn     func(usecase.ListFlowsQuery) ([]domain.Flow, error)
+	validateFn func(usecase.ValidateFlowCommand) (usecase.FlowValidationResult, error)
+}
 
-func (fakeFlowManagementUseCase) CreateFlow(context.Context, usecase.CreateFlowCommand) (usecase.FlowDefinitionView, error) {
-	return usecase.FlowDefinitionView{}, nil
+func (f fakeFlowManagementUseCase) CreateFlow(_ context.Context, cmd usecase.CreateFlowCommand) (usecase.FlowDefinitionView, error) {
+	if f.createFn == nil {
+		return usecase.FlowDefinitionView{}, nil
+	}
+	return f.createFn(cmd)
 }
-func (fakeFlowManagementUseCase) UpdateFlow(context.Context, usecase.UpdateFlowCommand) (usecase.FlowDefinitionView, error) {
-	return usecase.FlowDefinitionView{}, nil
+func (f fakeFlowManagementUseCase) UpdateFlow(_ context.Context, cmd usecase.UpdateFlowCommand) (usecase.FlowDefinitionView, error) {
+	if f.updateFn == nil {
+		return usecase.FlowDefinitionView{}, nil
+	}
+	return f.updateFn(cmd)
 }
-func (fakeFlowManagementUseCase) GetFlow(context.Context, usecase.GetFlowQuery) (usecase.FlowDefinitionView, error) {
-	return usecase.FlowDefinitionView{}, nil
+func (f fakeFlowManagementUseCase) GetFlow(_ context.Context, query usecase.GetFlowQuery) (usecase.FlowDefinitionView, error) {
+	if f.getFn == nil {
+		return usecase.FlowDefinitionView{}, nil
+	}
+	return f.getFn(query)
 }
-func (fakeFlowManagementUseCase) ListFlows(context.Context, usecase.ListFlowsQuery) ([]domain.Flow, error) {
-	return nil, nil
+func (f fakeFlowManagementUseCase) ListFlows(_ context.Context, query usecase.ListFlowsQuery) ([]domain.Flow, error) {
+	if f.listFn == nil {
+		return nil, nil
+	}
+	return f.listFn(query)
 }
-func (fakeFlowManagementUseCase) ValidateFlow(context.Context, usecase.ValidateFlowCommand) (usecase.FlowValidationResult, error) {
-	return usecase.FlowValidationResult{}, nil
+func (f fakeFlowManagementUseCase) ValidateFlow(_ context.Context, cmd usecase.ValidateFlowCommand) (usecase.FlowValidationResult, error) {
+	if f.validateFn == nil {
+		return usecase.FlowValidationResult{}, nil
+	}
+	return f.validateFn(cmd)
 }
 
 type fakeRunService struct {
@@ -137,9 +158,30 @@ func (fakeCurlImportUseCase) ImportCurl(context.Context, usecase.ImportCurlInput
 	return usecase.ImportCurlResult{}, nil
 }
 
-func testHTTPServer(workspaceSvc usecase.WorkspaceManagementUseCase, savedRequestSvc usecase.SavedRequestManagementUseCase, flowSvc usecase.FlowManagementUseCase, runSvc usecase.RunService) *Server {
+type fakeRunEventUseCase struct {
+	listFn func(usecase.ListRunEventsQuery) ([]domain.RunEvent, error)
+}
+
+func (f fakeRunEventUseCase) ListRunEvents(_ context.Context, query usecase.ListRunEventsQuery) ([]domain.RunEvent, error) {
+	if f.listFn == nil {
+		return nil, nil
+	}
+	return f.listFn(query)
+}
+
+func (fakeRunEventUseCase) SubscribeRunEvents(context.Context, usecase.ListRunEventsQuery) (<-chan domain.RunEvent, func(), error) {
+	ch := make(chan domain.RunEvent)
+	close(ch)
+	return ch, func() {}, nil
+}
+
+func testHTTPServer(workspaceSvc usecase.WorkspaceManagementUseCase, savedRequestSvc usecase.SavedRequestManagementUseCase, flowSvc usecase.FlowManagementUseCase, runSvc usecase.RunService, runEventSvc ...usecase.RunEventUseCase) *Server {
 	cfg := config.Config{ServiceName: "stageflow", Environment: "test", HTTP: config.HTTPConfig{Address: ":0"}}
-	return NewServer(cfg, zap.NewNop(), nil, workspaceSvc, savedRequestSvc, flowSvc, runSvc, fakeCurlImportUseCase{}, nil)
+	var events usecase.RunEventUseCase
+	if len(runEventSvc) > 0 {
+		events = runEventSvc[0]
+	}
+	return NewServer(cfg, zap.NewNop(), nil, workspaceSvc, savedRequestSvc, flowSvc, runSvc, fakeCurlImportUseCase{}, events)
 }
 
 func TestServer_WorkspaceFirst_CreateWorkspace(t *testing.T) {
@@ -299,6 +341,58 @@ func TestServer_WorkspaceFirst_LaunchFlowUsesPathWorkspaceScope(t *testing.T) {
 	}
 }
 
+func TestServer_GetFlow_PassesVersionQueryToUseCase(t *testing.T) {
+	var got usecase.GetFlowQuery
+	server := testHTTPServer(fakeWorkspaceManagementUseCase{
+		createFn: func(usecase.CreateWorkspaceCommand) (usecase.WorkspaceView, error) {
+			return usecase.WorkspaceView{}, nil
+		},
+		getFn:  func(usecase.GetWorkspaceQuery) (usecase.WorkspaceView, error) { return usecase.WorkspaceView{}, nil },
+		listFn: func(usecase.ListWorkspacesQuery) ([]domain.Workspace, error) { return nil, nil },
+		updateFn: func(usecase.UpdateWorkspaceCommand) (usecase.WorkspaceView, error) {
+			return usecase.WorkspaceView{}, nil
+		},
+		archiveFn: func(usecase.ArchiveWorkspaceCommand) (usecase.WorkspaceView, error) {
+			return usecase.WorkspaceView{}, nil
+		},
+		unarchiveFn: func(usecase.UnarchiveWorkspaceCommand) (usecase.WorkspaceView, error) {
+			return usecase.WorkspaceView{}, nil
+		},
+		policyFn: func(usecase.UpdateWorkspacePolicyCommand) (usecase.WorkspaceView, error) {
+			return usecase.WorkspaceView{}, nil
+		},
+		variablesFn: func(usecase.UpdateWorkspaceVariablesCommand) (usecase.WorkspaceView, error) {
+			return usecase.WorkspaceView{}, nil
+		},
+		putSecretFn:    func(usecase.PutWorkspaceSecretCommand) error { return nil },
+		listSecretFn:   func(usecase.ListWorkspaceSecretsQuery) ([]domain.WorkspaceSecret, error) { return nil, nil },
+		deleteSecretFn: func(usecase.DeleteWorkspaceSecretCommand) error { return nil },
+	}, fakeSavedRequestManagementUseCase{}, fakeFlowManagementUseCase{
+		getFn: func(query usecase.GetFlowQuery) (usecase.FlowDefinitionView, error) {
+			got = query
+			now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
+			return usecase.FlowDefinitionView{Flow: domain.Flow{WorkspaceID: query.WorkspaceID, ID: query.FlowID, Name: "Snapshot", Version: query.Version, Status: domain.FlowStatusActive, CreatedAt: now, UpdatedAt: now}}, nil
+		},
+	}, fakeRunService{
+		launchFlowFn:         func(usecase.LaunchFlowInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+		launchSavedRequestFn: func(usecase.LaunchSavedRequestInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+		runSavedRequestFn:    func(usecase.LaunchSavedRequestInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+		getRunStatusFn:       func(usecase.GetRunStatusQuery) (usecase.RunStatusView, error) { return usecase.RunStatusView{}, nil },
+		rerunFn:              func(usecase.RerunInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/workspaces/workspace-a/flows/flow-a?version=2", nil)
+	resp := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	if got.WorkspaceID != "workspace-a" || got.FlowID != "flow-a" || got.Version != 2 {
+		t.Fatalf("got = %#v", got)
+	}
+}
+
 func TestServer_RunEndpoints_DoNotRequireWorkspaceQuery(t *testing.T) {
 	server := testHTTPServer(fakeWorkspaceManagementUseCase{
 		createFn: func(usecase.CreateWorkspaceCommand) (usecase.WorkspaceView, error) {
@@ -397,5 +491,87 @@ func TestServer_WorkspaceFirst_UnarchiveWorkspace(t *testing.T) {
 	}
 	if got.WorkspaceID != "workspace-a" {
 		t.Fatalf("WorkspaceID = %q, want workspace-a", got.WorkspaceID)
+	}
+}
+
+func TestServer_GetRunEvents(t *testing.T) {
+	now := time.Date(2026, 3, 22, 11, 0, 0, 0, time.UTC)
+	server := testHTTPServer(
+		fakeWorkspaceManagementUseCase{
+			createFn: func(usecase.CreateWorkspaceCommand) (usecase.WorkspaceView, error) {
+				return usecase.WorkspaceView{}, nil
+			},
+			getFn:  func(usecase.GetWorkspaceQuery) (usecase.WorkspaceView, error) { return usecase.WorkspaceView{}, nil },
+			listFn: func(usecase.ListWorkspacesQuery) ([]domain.Workspace, error) { return nil, nil },
+			updateFn: func(usecase.UpdateWorkspaceCommand) (usecase.WorkspaceView, error) {
+				return usecase.WorkspaceView{}, nil
+			},
+			archiveFn: func(usecase.ArchiveWorkspaceCommand) (usecase.WorkspaceView, error) {
+				return usecase.WorkspaceView{}, nil
+			},
+			unarchiveFn: func(usecase.UnarchiveWorkspaceCommand) (usecase.WorkspaceView, error) {
+				return usecase.WorkspaceView{}, nil
+			},
+			policyFn: func(usecase.UpdateWorkspacePolicyCommand) (usecase.WorkspaceView, error) {
+				return usecase.WorkspaceView{}, nil
+			},
+			variablesFn: func(usecase.UpdateWorkspaceVariablesCommand) (usecase.WorkspaceView, error) {
+				return usecase.WorkspaceView{}, nil
+			},
+			putSecretFn:    func(usecase.PutWorkspaceSecretCommand) error { return nil },
+			listSecretFn:   func(usecase.ListWorkspaceSecretsQuery) ([]domain.WorkspaceSecret, error) { return nil, nil },
+			deleteSecretFn: func(usecase.DeleteWorkspaceSecretCommand) error { return nil },
+		},
+		fakeSavedRequestManagementUseCase{},
+		fakeFlowManagementUseCase{},
+		fakeRunService{
+			launchFlowFn:         func(usecase.LaunchFlowInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+			launchSavedRequestFn: func(usecase.LaunchSavedRequestInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+			runSavedRequestFn:    func(usecase.LaunchSavedRequestInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+			getRunStatusFn:       func(usecase.GetRunStatusQuery) (usecase.RunStatusView, error) { return usecase.RunStatusView{}, nil },
+			rerunFn:              func(usecase.RerunInput) (domain.FlowRun, error) { return domain.FlowRun{}, nil },
+		},
+		fakeRunEventUseCase{
+			listFn: func(query usecase.ListRunEventsQuery) ([]domain.RunEvent, error) {
+				if query.WorkspaceID != "workspace-a" || query.RunID != "run-a" || query.AfterSequence != 4 {
+					t.Fatalf("query = %#v", query)
+				}
+				return []domain.RunEvent{{
+					ID:          "evt-1",
+					RunID:       "run-a",
+					WorkspaceID: "workspace-a",
+					FlowID:      "flow-a",
+					Sequence:    5,
+					EventType:   domain.RunEventTypeStepStarted,
+					Level:       domain.RunEventLevelInfo,
+					StepName:    "fetch",
+					Message:     "step started",
+					CreatedAt:   now,
+					DetailsJSON: json.RawMessage(`{"attempt":1}`),
+				}}, nil
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/run-a/events?workspace_id=workspace-a&after=4", nil)
+	resp := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.Code, http.StatusOK)
+	}
+	var body listResponse[runEventResponse]
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items = %#v", body.Items)
+	}
+	if body.Items[0].Sequence != 5 || body.Items[0].EventType != string(domain.RunEventTypeStepStarted) {
+		t.Fatalf("event = %#v", body.Items[0])
+	}
+	details, ok := body.Items[0].Details.(map[string]any)
+	if !ok || details["attempt"] != float64(1) {
+		t.Fatalf("details = %#v", body.Items[0].Details)
 	}
 }

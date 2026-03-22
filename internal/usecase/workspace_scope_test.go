@@ -278,6 +278,71 @@ func TestFlowManagementService_CreateFlow_AppliesWorkspacePolicyDefaults(t *test
 	}
 }
 
+func TestFlowManagementService_GetFlow_ReturnsRequestedVersionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 3, 21, 11, 0, 0, 0, time.UTC)
+	workspaceRepo := repository.NewInMemoryWorkspaceRepository(domain.Workspace{
+		ID:          "workspace-versioned",
+		Name:        "Versioned workspace",
+		Slug:        "versioned-workspace",
+		Description: "versions",
+		OwnerTeam:   "payments",
+		Status:      domain.WorkspaceStatusActive,
+		Policy:      testWorkspacePolicy(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	flowRepo := repository.NewInMemoryFlowRepository()
+	flowStepRepo := repository.NewInMemoryFlowStepRepository()
+	service, err := NewFlowManagementService(workspaceRepo, repository.NewInMemorySavedRequestRepository(), flowRepo, flowStepRepo, fixedClock{now: now})
+	if err != nil {
+		t.Fatalf("NewFlowManagementService() error = %v", err)
+	}
+
+	if _, err := service.CreateFlow(ctx, CreateFlowCommand{
+		WorkspaceID: "workspace-versioned",
+		FlowID:      "flow-versioned",
+		Name:        "Version one",
+		Status:      domain.FlowStatusDraft,
+		Steps: []FlowStepDraft{{
+			ID:          "step-1",
+			OrderIndex:  0,
+			Name:        "call-v1",
+			RequestSpec: domain.RequestSpec{Method: "GET", URLTemplate: "https://svc.internal/v1"},
+		}},
+	}); err != nil {
+		t.Fatalf("CreateFlow() error = %v", err)
+	}
+	if _, err := service.UpdateFlow(ctx, UpdateFlowCommand{
+		FlowID: "flow-versioned",
+		Name:   "Version two",
+		Status: domain.FlowStatusActive,
+		Steps: []FlowStepDraft{{
+			ID:          "step-2",
+			OrderIndex:  0,
+			Name:        "call-v2",
+			RequestSpec: domain.RequestSpec{Method: "GET", URLTemplate: "https://svc.internal/v2"},
+		}},
+	}); err != nil {
+		t.Fatalf("UpdateFlow() error = %v", err)
+	}
+
+	v1, err := service.GetFlow(ctx, GetFlowQuery{WorkspaceID: "workspace-versioned", FlowID: "flow-versioned", Version: 1})
+	if err != nil {
+		t.Fatalf("GetFlow(v1) error = %v", err)
+	}
+	if v1.Flow.Version != 1 || v1.Flow.Name != "Version one" || len(v1.Steps) != 1 || v1.Steps[0].Name != "call-v1" {
+		t.Fatalf("v1 = %#v", v1)
+	}
+	current, err := service.GetFlow(ctx, GetFlowQuery{WorkspaceID: "workspace-versioned", FlowID: "flow-versioned"})
+	if err != nil {
+		t.Fatalf("GetFlow(current) error = %v", err)
+	}
+	if current.Flow.Version != 2 || current.Flow.Name != "Version two" || len(current.Steps) != 1 || current.Steps[0].Name != "call-v2" {
+		t.Fatalf("current = %#v", current)
+	}
+}
+
 func TestRunCoordinator_LaunchFlow_RejectsPolicyViolationsBeforeDispatch(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 3, 21, 11, 5, 0, 0, time.UTC)

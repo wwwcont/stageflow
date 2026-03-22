@@ -103,3 +103,39 @@ func TestLoad_AppliesDurationFlagOverride(t *testing.T) {
 		t.Fatalf("ReadTimeout = %s, want %s", cfg.HTTP.ReadTimeout, 7*time.Second)
 	}
 }
+
+func TestLoad_PostgresBackendRequiresDSN(t *testing.T) {
+	_, err := Load(context.Background(), nil, mapEnv{
+		"STAGEFLOW_STORAGE_BACKEND": "postgres",
+	})
+	if err == nil {
+		t.Fatal("Load() error = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "postgres dsn is required when storage backend is postgres") {
+		t.Fatalf("Load() error = %q", err.Error())
+	}
+}
+
+func TestLoad_PostgresBackendSettingsFromFlags(t *testing.T) {
+	cfg, err := Load(context.Background(), []string{
+		"-storage-backend", "postgres",
+		"-postgres-driver", "stageflow-postgres-harness",
+		"-postgres-dsn", "memory",
+		"-postgres-max-open-conns", "17",
+	}, mapEnv{})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Runtime.StorageBackend != "postgres" {
+		t.Fatalf("StorageBackend = %q, want postgres", cfg.Runtime.StorageBackend)
+	}
+	if cfg.Postgres.Driver != "stageflow-postgres-harness" {
+		t.Fatalf("Postgres.Driver = %q", cfg.Postgres.Driver)
+	}
+	if cfg.Postgres.DSN != "memory" {
+		t.Fatalf("Postgres.DSN = %q", cfg.Postgres.DSN)
+	}
+	if cfg.Postgres.MaxOpenConns != 17 {
+		t.Fatalf("Postgres.MaxOpenConns = %d, want 17", cfg.Postgres.MaxOpenConns)
+	}
+}

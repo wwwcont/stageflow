@@ -16,8 +16,9 @@ import (
 // к конкретной базе данных, пока контракт хранилища ещё не финализирован.
 
 type InMemoryFlowRepository struct {
-	mu    sync.RWMutex
-	flows map[domain.FlowID]domain.Flow
+	mu       sync.RWMutex
+	flows    map[domain.FlowID]domain.Flow
+	versions map[domain.FlowID]map[int]domain.Flow
 }
 
 type InMemoryWorkspaceRepository struct {
@@ -77,7 +78,14 @@ func NewInMemoryFlowRepository() *InMemoryFlowRepository {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	return &InMemoryFlowRepository{flows: map[domain.FlowID]domain.Flow{bootstrap.ID: bootstrap}}
+	return &InMemoryFlowRepository{
+		flows: map[domain.FlowID]domain.Flow{bootstrap.ID: bootstrap},
+		versions: map[domain.FlowID]map[int]domain.Flow{
+			bootstrap.ID: {
+				bootstrap.Version: bootstrap,
+			},
+		},
+	}
 }
 
 func NewInMemorySavedRequestRepository(seed ...domain.SavedRequest) *InMemorySavedRequestRepository {
@@ -176,6 +184,7 @@ func (r *InMemoryFlowRepository) Create(_ context.Context, flow domain.Flow) err
 		return &domain.ConflictError{Entity: "flow", Field: "id", Value: string(flow.ID)}
 	}
 	r.flows[flow.ID] = flow
+	r.ensureVersions(flow.ID)[flow.Version] = flow
 	return nil
 }
 
@@ -189,6 +198,7 @@ func (r *InMemoryFlowRepository) Update(_ context.Context, flow domain.Flow) err
 		return &domain.NotFoundError{Entity: "flow", ID: string(flow.ID)}
 	}
 	r.flows[flow.ID] = flow
+	r.ensureVersions(flow.ID)[flow.Version] = flow
 	return nil
 }
 
@@ -200,6 +210,35 @@ func (r *InMemoryFlowRepository) GetByID(_ context.Context, id domain.FlowID) (d
 		return domain.Flow{}, &domain.NotFoundError{Entity: "flow", ID: string(id)}
 	}
 	return flow, nil
+}
+
+func (r *InMemoryFlowRepository) GetVersion(_ context.Context, id domain.FlowID, version int) (domain.Flow, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	versions, ok := r.versions[id]
+	if !ok {
+		return domain.Flow{}, &domain.NotFoundError{Entity: "flow", ID: string(id)}
+	}
+	flow, ok := versions[version]
+	if !ok {
+		return domain.Flow{}, &domain.NotFoundError{Entity: "flow version", ID: fmt.Sprintf("%s@v%d", id, version)}
+	}
+	return flow, nil
+}
+
+func (r *InMemoryFlowRepository) ListVersions(_ context.Context, id domain.FlowID) ([]domain.Flow, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	versions, ok := r.versions[id]
+	if !ok {
+		return nil, &domain.NotFoundError{Entity: "flow", ID: string(id)}
+	}
+	result := make([]domain.Flow, 0, len(versions))
+	for _, flow := range versions {
+		result = append(result, flow)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Version > result[j].Version })
+	return result, nil
 }
 
 func (r *InMemoryFlowRepository) List(_ context.Context, filter FlowListFilter) ([]domain.Flow, error) {
@@ -220,6 +259,15 @@ func (r *InMemoryFlowRepository) List(_ context.Context, filter FlowListFilter) 
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return sliceWindow(result, filter.Offset, filter.Limit), nil
+}
+
+func (r *InMemoryFlowRepository) ensureVersions(flowID domain.FlowID) map[int]domain.Flow {
+	versions, ok := r.versions[flowID]
+	if !ok {
+		versions = make(map[int]domain.Flow)
+		r.versions[flowID] = versions
+	}
+	return versions
 }
 
 func (r *InMemorySavedRequestRepository) Create(_ context.Context, request domain.SavedRequest) error {
@@ -278,31 +326,38 @@ func (r *InMemorySavedRequestRepository) List(_ context.Context, filter SavedReq
 }
 
 type InMemoryFlowStepRepository struct {
-	mu    sync.RWMutex
-	steps map[domain.FlowID][]domain.FlowStep
+	mu             sync.RWMutex
+	steps          map[domain.FlowID][]domain.FlowStep
+	versionedSteps map[domain.FlowID]map[int][]domain.FlowStep
 }
 
 func NewInMemoryFlowStepRepository() *InMemoryFlowStepRepository {
 	now := time.Now().UTC()
-	return &InMemoryFlowStepRepository{steps: map[domain.FlowID][]domain.FlowStep{
-		"bootstrap": {
-			{
-				ID:         "bootstrap-step-1",
-				FlowID:     "bootstrap",
-				OrderIndex: 0,
-				Name:       "bootstrap request",
-				RequestSpec: domain.RequestSpec{
-					Method:      "GET",
-					URLTemplate: "https://example.internal/health",
-					Timeout:     3 * time.Second,
-				},
-				ExtractionSpec: domain.ExtractionSpec{Rules: []domain.ExtractionRule{{Name: "status", Source: domain.ExtractionSourceStatus}}},
-				AssertionSpec:  domain.AssertionSpec{Rules: []domain.AssertionRule{{Name: "expect-200", Target: domain.AssertionTargetStatusCode, Operator: domain.AssertionOperatorEquals, ExpectedValue: "200"}}},
-				CreatedAt:      now,
-				UpdatedAt:      now,
+	bootstrapSteps := []domain.FlowStep{{
+		ID:         "bootstrap-step-1",
+		FlowID:     "bootstrap",
+		OrderIndex: 0,
+		Name:       "bootstrap request",
+		RequestSpec: domain.RequestSpec{
+			Method:      "GET",
+			URLTemplate: "https://example.internal/health",
+			Timeout:     3 * time.Second,
+		},
+		ExtractionSpec: domain.ExtractionSpec{Rules: []domain.ExtractionRule{{Name: "status", Source: domain.ExtractionSourceStatus}}},
+		AssertionSpec:  domain.AssertionSpec{Rules: []domain.AssertionRule{{Name: "expect-200", Target: domain.AssertionTargetStatusCode, Operator: domain.AssertionOperatorEquals, ExpectedValue: "200"}}},
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	return &InMemoryFlowStepRepository{
+		steps: map[domain.FlowID][]domain.FlowStep{
+			"bootstrap": cloneFlowSteps(bootstrapSteps),
+		},
+		versionedSteps: map[domain.FlowID]map[int][]domain.FlowStep{
+			"bootstrap": {
+				1: cloneFlowSteps(bootstrapSteps),
 			},
 		},
-	}}
+	}
 }
 
 func (r *InMemoryFlowStepRepository) CreateMany(_ context.Context, steps []domain.FlowStep) error {
@@ -320,8 +375,7 @@ func (r *InMemoryFlowStepRepository) CreateMany(_ context.Context, steps []domai
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	cloned := make([]domain.FlowStep, len(steps))
-	copy(cloned, steps)
+	cloned := cloneFlowSteps(steps)
 	r.steps[flowID] = append(r.steps[flowID], cloned...)
 	sort.Slice(r.steps[flowID], func(i, j int) bool { return r.steps[flowID][i].OrderIndex < r.steps[flowID][j].OrderIndex })
 	return nil
@@ -338,8 +392,7 @@ func (r *InMemoryFlowStepRepository) ReplaceByFlowID(_ context.Context, flowID d
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	cloned := make([]domain.FlowStep, len(steps))
-	copy(cloned, steps)
+	cloned := cloneFlowSteps(steps)
 	r.steps[flowID] = cloned
 	sort.Slice(r.steps[flowID], func(i, j int) bool { return r.steps[flowID][i].OrderIndex < r.steps[flowID][j].OrderIndex })
 	return nil
@@ -348,11 +401,60 @@ func (r *InMemoryFlowStepRepository) ReplaceByFlowID(_ context.Context, flowID d
 func (r *InMemoryFlowStepRepository) ListByFlowID(_ context.Context, flowID domain.FlowID) ([]domain.FlowStep, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	steps := r.steps[flowID]
-	cloned := make([]domain.FlowStep, len(steps))
-	copy(cloned, steps)
+	cloned := cloneFlowSteps(r.steps[flowID])
 	sort.Slice(cloned, func(i, j int) bool { return cloned[i].OrderIndex < cloned[j].OrderIndex })
 	return cloned, nil
+}
+
+func (r *InMemoryFlowStepRepository) ReplaceByFlowVersion(_ context.Context, flowID domain.FlowID, version int, steps []domain.FlowStep) error {
+	if version < 1 {
+		return &domain.ValidationError{Message: "flow version must be >= 1"}
+	}
+	for _, step := range steps {
+		if err := step.Validate(); err != nil {
+			return err
+		}
+		if step.FlowID != flowID {
+			return &domain.ValidationError{Message: "flow step flow_id must match replace target flow_id"}
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	versions := r.ensureVersionedSteps(flowID)
+	versions[version] = cloneFlowSteps(steps)
+	sort.Slice(versions[version], func(i, j int) bool { return versions[version][i].OrderIndex < versions[version][j].OrderIndex })
+	return nil
+}
+
+func (r *InMemoryFlowStepRepository) ListByFlowVersion(_ context.Context, flowID domain.FlowID, version int) ([]domain.FlowStep, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	versions, ok := r.versionedSteps[flowID]
+	if !ok {
+		return nil, &domain.NotFoundError{Entity: "flow", ID: string(flowID)}
+	}
+	steps, ok := versions[version]
+	if !ok {
+		return nil, &domain.NotFoundError{Entity: "flow version", ID: fmt.Sprintf("%s@v%d", flowID, version)}
+	}
+	cloned := cloneFlowSteps(steps)
+	sort.Slice(cloned, func(i, j int) bool { return cloned[i].OrderIndex < cloned[j].OrderIndex })
+	return cloned, nil
+}
+
+func (r *InMemoryFlowStepRepository) ensureVersionedSteps(flowID domain.FlowID) map[int][]domain.FlowStep {
+	versions, ok := r.versionedSteps[flowID]
+	if !ok {
+		versions = make(map[int][]domain.FlowStep)
+		r.versionedSteps[flowID] = versions
+	}
+	return versions
+}
+
+func cloneFlowSteps(steps []domain.FlowStep) []domain.FlowStep {
+	cloned := make([]domain.FlowStep, len(steps))
+	copy(cloned, steps)
+	return cloned
 }
 
 type InMemoryRunRepository struct {

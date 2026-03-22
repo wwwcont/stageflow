@@ -714,7 +714,8 @@ func (h *Handler) runDetails(w http.ResponseWriter, r *http.Request) {
 	}
 	targetDetails := map[string]string{}
 	if view.Run.IsFlowRun() {
-		if flow, err := h.services.flowManagement.GetFlow(r.Context(), usecase.GetFlowQuery{WorkspaceID: workspace.ID, FlowID: view.Run.FlowID}); err == nil {
+		targetDetails["Flow version"] = strconv.Itoa(view.Run.FlowVersion)
+		if flow, err := h.services.flowManagement.GetFlow(r.Context(), usecase.GetFlowQuery{WorkspaceID: workspace.ID, FlowID: view.Run.FlowID, Version: view.Run.FlowVersion}); err == nil {
 			targetDetails["Flow"] = flow.Flow.Name
 		}
 	} else if view.Run.IsSavedRequestRun() {
@@ -1833,7 +1834,7 @@ func (h *Handler) runItem(ctx context.Context, run domain.FlowRun) viewmodels.Ru
 		targetName = string(run.SavedRequestID)
 	}
 	if run.IsFlowRun() {
-		if flow, err := h.services.flowManagement.GetFlow(ctx, usecase.GetFlowQuery{WorkspaceID: run.WorkspaceID, FlowID: run.FlowID}); err == nil {
+		if flow, err := h.services.flowManagement.GetFlow(ctx, usecase.GetFlowQuery{WorkspaceID: run.WorkspaceID, FlowID: run.FlowID, Version: run.FlowVersion}); err == nil {
 			targetName = flow.Flow.Name
 		}
 	} else if run.IsSavedRequestRun() {

@@ -144,6 +144,85 @@ func TestSequentialEngine_ExecuteRun_Success(t *testing.T) {
 	}
 }
 
+func TestSequentialEngine_ExecuteRun_UsesPersistedFlowVersionSnapshot(t *testing.T) {
+	ctx := context.Background()
+	workspaceRepo := testWorkspaceRepo("workspace-versioned")
+	flowRepo := repository.NewInMemoryFlowRepository()
+	flowStepRepo := repository.NewInMemoryFlowStepRepository()
+	runRepo := repository.NewInMemoryRunRepository()
+	runStepRepo := repository.NewInMemoryRunStepRepository()
+	now := time.Now().UTC()
+
+	flowV1 := domain.Flow{WorkspaceID: "workspace-versioned", ID: "flow-versioned", Name: "Versioned", Version: 1, Status: domain.FlowStatusActive, CreatedAt: now, UpdatedAt: now}
+	if err := flowRepo.Create(ctx, flowV1); err != nil {
+		t.Fatalf("Create(flow v1) error = %v", err)
+	}
+	v1Steps := []domain.FlowStep{{
+		ID:             "step-v1",
+		FlowID:         flowV1.ID,
+		OrderIndex:     0,
+		Name:           "call-v1",
+		RequestSpec:    domain.RequestSpec{Method: http.MethodGet, URLTemplate: "https://svc.internal/v1", Timeout: time.Second},
+		ExtractionSpec: domain.ExtractionSpec{},
+		AssertionSpec:  domain.AssertionSpec{},
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	if err := flowStepRepo.ReplaceByFlowID(ctx, flowV1.ID, v1Steps); err != nil {
+		t.Fatalf("ReplaceByFlowID(v1) error = %v", err)
+	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flowV1.ID, 1, v1Steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(v1) error = %v", err)
+	}
+
+	flowV2 := flowV1
+	flowV2.Version = 2
+	flowV2.UpdatedAt = now.Add(time.Minute)
+	if err := flowRepo.Update(ctx, flowV2); err != nil {
+		t.Fatalf("Update(flow v2) error = %v", err)
+	}
+	v2Steps := []domain.FlowStep{{
+		ID:             "step-v2",
+		FlowID:         flowV1.ID,
+		OrderIndex:     0,
+		Name:           "call-v2",
+		RequestSpec:    domain.RequestSpec{Method: http.MethodGet, URLTemplate: "https://svc.internal/v2", Timeout: time.Second},
+		ExtractionSpec: domain.ExtractionSpec{},
+		AssertionSpec:  domain.AssertionSpec{},
+		CreatedAt:      flowV2.UpdatedAt,
+		UpdatedAt:      flowV2.UpdatedAt,
+	}}
+	if err := flowStepRepo.ReplaceByFlowID(ctx, flowV1.ID, v2Steps); err != nil {
+		t.Fatalf("ReplaceByFlowID(v2) error = %v", err)
+	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flowV1.ID, 2, v2Steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(v2) error = %v", err)
+	}
+
+	run := domain.FlowRun{ID: "run-versioned", WorkspaceID: flowV1.WorkspaceID, FlowID: flowV1.ID, FlowVersion: 1, Status: domain.RunStatusQueued, InputJSON: json.RawMessage(`{}`), InitiatedBy: "test"}
+	if err := runRepo.Create(ctx, run); err != nil {
+		t.Fatalf("Create(run) error = %v", err)
+	}
+
+	var executedURL string
+	executor := &stubHTTPExecutor{run: func(spec domain.RequestSpec, _ HTTPExecutionPolicy, _ int) (HTTPExecutionResult, error) {
+		executedURL = spec.URLTemplate
+		return HTTPExecutionResult{
+			Response:         HTTPResponse{StatusCode: http.StatusOK, Body: []byte(`{}`)},
+			RequestSnapshot:  HTTPRequestSnapshot{Method: spec.Method, URL: spec.URLTemplate},
+			ResponseSnapshot: HTTPResponseSnapshot{StatusCode: http.StatusOK, Body: `{}`},
+		}, nil
+	}}
+	engine := mustEngine(t, workspaceRepo, repository.NewInMemorySavedRequestRepository(), flowRepo, flowStepRepo, runRepo, runStepRepo, executor, newSequenceClock(8))
+
+	if err := engine.ExecuteRun(ctx, run.ID); err != nil {
+		t.Fatalf("ExecuteRun() error = %v", err)
+	}
+	if executedURL != "https://svc.internal/v1" {
+		t.Fatalf("executed URL = %q, want v1 snapshot", executedURL)
+	}
+}
+
 func TestSequentialEngine_ExecuteRun_RedactsWorkspaceSecretsInSnapshots(t *testing.T) {
 	ctx := context.Background()
 	workspaceRepo := repository.NewInMemoryWorkspaceRepository(domain.Workspace{
@@ -715,6 +794,9 @@ func mustCreateFlow(t *testing.T, ctx context.Context, flowRepo repository.FlowR
 	}
 	if err := flowStepRepo.ReplaceByFlowID(ctx, flow.ID, steps); err != nil {
 		t.Fatalf("ReplaceByFlowID() error = %v", err)
+	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion() error = %v", err)
 	}
 }
 

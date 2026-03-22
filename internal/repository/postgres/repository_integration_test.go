@@ -27,6 +27,7 @@ func TestPostgresRepositories_FlowAndRunRoundTrip(t *testing.T) {
 	flowStepRepo := NewFlowStepRepository(db)
 	runRepo := NewRunRepository(db)
 	runStepRepo := NewRunStepRepository(db)
+	runEventRepo := NewRunEventRepository(db)
 
 	now := time.Date(2026, 3, 21, 12, 0, 0, 0, time.UTC)
 	workspace := domain.Workspace{
@@ -114,12 +115,22 @@ func TestPostgresRepositories_FlowAndRunRoundTrip(t *testing.T) {
 	if err := flowStepRepo.CreateMany(ctx, steps); err != nil {
 		t.Fatalf("CreateMany(flow steps) error = %v", err)
 	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, steps); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(flow steps) error = %v", err)
+	}
 	persistedFlow, err := flowRepo.GetByID(ctx, flow.ID)
 	if err != nil {
 		t.Fatalf("GetByID(flow) error = %v", err)
 	}
 	if persistedFlow.Name != flow.Name {
 		t.Fatalf("persisted flow name = %q, want %q", persistedFlow.Name, flow.Name)
+	}
+	persistedFlowVersion, err := flowRepo.GetVersion(ctx, flow.ID, 1)
+	if err != nil {
+		t.Fatalf("GetVersion(flow) error = %v", err)
+	}
+	if persistedFlowVersion.Version != 1 || persistedFlowVersion.Name != flow.Name {
+		t.Fatalf("persisted flow version = %#v", persistedFlowVersion)
 	}
 	persistedSteps, err := flowStepRepo.ListByFlowID(ctx, flow.ID)
 	if err != nil {
@@ -128,12 +139,26 @@ func TestPostgresRepositories_FlowAndRunRoundTrip(t *testing.T) {
 	if len(persistedSteps) != 1 || persistedSteps[0].Name != "fetch" {
 		t.Fatalf("persisted steps = %#v", persistedSteps)
 	}
+	persistedVersionSteps, err := flowStepRepo.ListByFlowVersion(ctx, flow.ID, 1)
+	if err != nil {
+		t.Fatalf("ListByFlowVersion() error = %v", err)
+	}
+	if len(persistedVersionSteps) != 1 || persistedVersionSteps[0].Name != "fetch" {
+		t.Fatalf("persisted version steps = %#v", persistedVersionSteps)
+	}
 	flows, err := flowRepo.List(ctx, repository.FlowListFilter{NameLike: "postgres"})
 	if err != nil {
 		t.Fatalf("List(flows) error = %v", err)
 	}
 	if len(flows) != 1 {
 		t.Fatalf("flow count = %d, want 1", len(flows))
+	}
+	flowVersions, err := flowRepo.ListVersions(ctx, flow.ID)
+	if err != nil {
+		t.Fatalf("ListVersions(flow) error = %v", err)
+	}
+	if len(flowVersions) != 1 || flowVersions[0].Version != 1 {
+		t.Fatalf("flow versions = %#v", flowVersions)
 	}
 
 	run := domain.FlowRun{ID: "run-pg", WorkspaceID: flow.WorkspaceID, FlowID: flow.ID, FlowVersion: 1, Status: domain.RunStatusQueued, CreatedAt: now, UpdatedAt: now, InputJSON: json.RawMessage(`{"customer_id":"cust-1"}`), InitiatedBy: "test", QueueName: "default", IdempotencyKey: "idem-1"}
@@ -193,18 +218,46 @@ func TestPostgresRepositories_FlowAndRunRoundTrip(t *testing.T) {
 	if len(runSteps) != 1 || runSteps[0].Status != domain.RunStepStatusSucceeded {
 		t.Fatalf("run steps = %#v", runSteps)
 	}
+
+	event := domain.RunEvent{
+		ID:          "run-pg-event-1",
+		RunID:       run.ID,
+		WorkspaceID: workspace.ID,
+		FlowID:      flow.ID,
+		EventType:   domain.RunEventTypeRunStarted,
+		Level:       domain.RunEventLevelInfo,
+		Message:     "run started",
+		CreatedAt:   now.Add(500 * time.Millisecond),
+	}
+	persistedEvent, err := runEventRepo.Append(ctx, event)
+	if err != nil {
+		t.Fatalf("Append(run event) error = %v", err)
+	}
+	if persistedEvent.Sequence != 1 {
+		t.Fatalf("persisted event sequence = %d, want 1", persistedEvent.Sequence)
+	}
+	events, err := runEventRepo.ListByRunID(ctx, run.ID, 0)
+	if err != nil {
+		t.Fatalf("ListByRunID(run events) error = %v", err)
+	}
+	if len(events) != 1 || events[0].Message != event.Message {
+		t.Fatalf("run events = %#v", events)
+	}
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }
 
 type postgresHarness struct {
-	mu         sync.Mutex
-	workspaces map[domain.WorkspaceID]domain.Workspace
-	requests   map[domain.SavedRequestID]domain.SavedRequest
-	flows      map[domain.FlowID]domain.Flow
-	flowSteps  map[domain.FlowID][]domain.FlowStep
-	runs       map[domain.RunID]domain.FlowRun
-	runSteps   map[domain.RunID][]domain.FlowRunStep
+	mu               sync.Mutex
+	workspaces       map[domain.WorkspaceID]domain.Workspace
+	requests         map[domain.SavedRequestID]domain.SavedRequest
+	flows            map[domain.FlowID]domain.Flow
+	flowSteps        map[domain.FlowID][]domain.FlowStep
+	flowVersions     map[domain.FlowID]map[int]domain.Flow
+	flowStepVersions map[domain.FlowID]map[int][]domain.FlowStep
+	runs             map[domain.RunID]domain.FlowRun
+	runSteps         map[domain.RunID][]domain.FlowRunStep
+	runEvents        map[domain.RunID][]domain.RunEvent
 }
 
 var (
@@ -219,12 +272,15 @@ func newPostgresHarnessDB(t *testing.T) *sql.DB {
 	name := fmt.Sprintf("harness-%d", time.Now().UnixNano())
 	harnessesMu.Lock()
 	harnesses[name] = &postgresHarness{
-		workspaces: map[domain.WorkspaceID]domain.Workspace{},
-		requests:   map[domain.SavedRequestID]domain.SavedRequest{},
-		flows:      map[domain.FlowID]domain.Flow{},
-		flowSteps:  map[domain.FlowID][]domain.FlowStep{},
-		runs:       map[domain.RunID]domain.FlowRun{},
-		runSteps:   map[domain.RunID][]domain.FlowRunStep{},
+		workspaces:       map[domain.WorkspaceID]domain.Workspace{},
+		requests:         map[domain.SavedRequestID]domain.SavedRequest{},
+		flows:            map[domain.FlowID]domain.Flow{},
+		flowSteps:        map[domain.FlowID][]domain.FlowStep{},
+		flowVersions:     map[domain.FlowID]map[int]domain.Flow{},
+		flowStepVersions: map[domain.FlowID]map[int][]domain.FlowStep{},
+		runs:             map[domain.RunID]domain.FlowRun{},
+		runSteps:         map[domain.RunID][]domain.FlowRunStep{},
+		runEvents:        map[domain.RunID][]domain.RunEvent{},
 	}
 	harnessesMu.Unlock()
 	db, err := sql.Open("stageflow-postgres-harness", name)
@@ -396,6 +452,13 @@ func (h *postgresHarness) exec(query string, args []driver.NamedValue) (driver.R
 		flow := domain.Flow{ID: asFlowID(args[0]), WorkspaceID: domain.WorkspaceID(asString(args[1])), Name: asString(args[2]), Description: asString(args[3]), Version: asInt(args[4]), Status: domain.FlowStatus(asString(args[5])), CreatedAt: asTime(args[6]), UpdatedAt: asTime(args[7])}
 		h.flows[flow.ID] = flow
 		return harnessResult(1), nil
+	case strings.Contains(query, "INSERT INTO flow_versions"):
+		flow := domain.Flow{ID: asFlowID(args[0]), WorkspaceID: domain.WorkspaceID(asString(args[1])), Version: asInt(args[2]), Name: asString(args[3]), Description: asString(args[4]), Status: domain.FlowStatus(asString(args[5])), CreatedAt: asTime(args[6]), UpdatedAt: asTime(args[7])}
+		if _, ok := h.flowVersions[flow.ID]; !ok {
+			h.flowVersions[flow.ID] = map[int]domain.Flow{}
+		}
+		h.flowVersions[flow.ID][flow.Version] = flow
+		return harnessResult(1), nil
 	case strings.Contains(query, "UPDATE flows"):
 		id := asFlowID(args[0])
 		flow, ok := h.flows[id]
@@ -408,12 +471,29 @@ func (h *postgresHarness) exec(query string, args []driver.NamedValue) (driver.R
 	case strings.Contains(query, "DELETE FROM flow_steps"):
 		delete(h.flowSteps, asFlowID(args[0]))
 		return harnessResult(1), nil
+	case strings.Contains(query, "DELETE FROM flow_step_versions"):
+		flowID, version := asFlowID(args[0]), asInt(args[1])
+		if versions, ok := h.flowStepVersions[flowID]; ok {
+			delete(versions, version)
+		}
+		return harnessResult(1), nil
 	case strings.Contains(query, "INSERT INTO flow_steps"):
 		step, err := decodeFlowStepArgs(args)
 		if err != nil {
 			return nil, err
 		}
 		h.flowSteps[step.FlowID] = append(h.flowSteps[step.FlowID], step)
+		return harnessResult(1), nil
+	case strings.Contains(query, "INSERT INTO flow_step_versions"):
+		step, err := decodeVersionedFlowStepArgs(args)
+		if err != nil {
+			return nil, err
+		}
+		version := asInt(args[2])
+		if _, ok := h.flowStepVersions[step.FlowID]; !ok {
+			h.flowStepVersions[step.FlowID] = map[int][]domain.FlowStep{}
+		}
+		h.flowStepVersions[step.FlowID][version] = append(h.flowStepVersions[step.FlowID][version], step)
 		return harnessResult(1), nil
 	case strings.Contains(query, "INSERT INTO flow_runs"):
 		run := domain.FlowRun{
@@ -561,6 +641,20 @@ func (h *postgresHarness) query(query string, args []driver.NamedValue) (driver.
 			return &harnessRows{}, nil
 		}
 		return &harnessRows{columns: []string{"id", "workspace_id", "name", "description", "version", "status", "created_at", "updated_at"}, values: [][]driver.Value{{string(flow.ID), string(flow.WorkspaceID), flow.Name, flow.Description, int64(flow.Version), string(flow.Status), flow.CreatedAt, flow.UpdatedAt}}}, nil
+	case strings.Contains(query, "FROM flow_versions") && strings.Contains(query, "WHERE flow_id = $1 AND version = $2"):
+		versions := h.flowVersions[asFlowID(args[0])]
+		flow, ok := versions[asInt(args[1])]
+		if !ok {
+			return &harnessRows{}, nil
+		}
+		return &harnessRows{columns: []string{"flow_id", "workspace_id", "name", "description", "version", "status", "created_at", "updated_at"}, values: [][]driver.Value{{string(flow.ID), string(flow.WorkspaceID), flow.Name, flow.Description, int64(flow.Version), string(flow.Status), flow.CreatedAt, flow.UpdatedAt}}}, nil
+	case strings.Contains(query, "FROM flow_versions") && strings.Contains(query, "WHERE flow_id = $1"):
+		versions := h.flowVersions[asFlowID(args[0])]
+		rows := [][]driver.Value{}
+		for _, flow := range versions {
+			rows = append(rows, []driver.Value{string(flow.ID), string(flow.WorkspaceID), flow.Name, flow.Description, int64(flow.Version), string(flow.Status), flow.CreatedAt, flow.UpdatedAt})
+		}
+		return &harnessRows{columns: []string{"flow_id", "workspace_id", "name", "description", "version", "status", "created_at", "updated_at"}, values: rows}, nil
 	case strings.Contains(query, "FROM flows") && strings.Contains(query, "WHERE 1=1"):
 		rows := [][]driver.Value{}
 		for _, flow := range h.flows {
@@ -579,6 +673,18 @@ func (h *postgresHarness) query(query string, args []driver.NamedValue) (driver.
 		return &harnessRows{columns: []string{"id", "workspace_id", "name", "description", "version", "status", "created_at", "updated_at"}, values: rows}, nil
 	case strings.Contains(query, "FROM flow_steps"):
 		steps := h.flowSteps[asFlowID(args[0])]
+		rows := make([][]driver.Value, 0, len(steps))
+		for _, step := range steps {
+			requestSpec, _ := json.Marshal(step.RequestSpec)
+			requestSpecOverride, _ := json.Marshal(step.RequestSpecOverride)
+			extractionSpec, _ := json.Marshal(step.ExtractionSpec)
+			assertionSpec, _ := json.Marshal(step.AssertionSpec)
+			rows = append(rows, []driver.Value{string(step.ID), string(step.FlowID), int64(step.OrderIndex), step.Name, string(step.Type()), valueOrNilString(step.SavedRequestID), requestSpec, requestSpecOverride, extractionSpec, assertionSpec, step.CreatedAt, step.UpdatedAt})
+		}
+		return &harnessRows{columns: []string{"id", "flow_id", "order_index", "name", "step_type", "saved_request_id", "request_spec", "request_spec_override", "extraction_spec", "assertion_spec", "created_at", "updated_at"}, values: rows}, nil
+	case strings.Contains(query, "FROM flow_step_versions"):
+		versions := h.flowStepVersions[asFlowID(args[0])]
+		steps := versions[asInt(args[1])]
 		rows := make([][]driver.Value, 0, len(steps))
 		for _, step := range steps {
 			requestSpec, _ := json.Marshal(step.RequestSpec)
@@ -641,6 +747,42 @@ func (h *postgresHarness) query(query string, args []driver.NamedValue) (driver.
 			rows = append(rows, []driver.Value{string(step.ID), string(step.RunID), step.StepName, int64(step.StepOrder), string(step.Status), []byte(step.RequestSnapshotJSON), []byte(step.ResponseSnapshotJSON), []byte(step.ExtractedValuesJSON), []byte(step.AttemptHistoryJSON), int64(step.RetryCount), step.CreatedAt, step.UpdatedAt, valueOrNil(step.StartedAt), valueOrNil(step.FinishedAt), step.ErrorMessage})
 		}
 		return &harnessRows{columns: []string{"id", "run_id", "step_name", "step_order", "status", "request_snapshot_json", "response_snapshot_json", "extracted_values_json", "attempt_history_json", "retry_count", "created_at", "updated_at", "started_at", "finished_at", "error_message"}, values: rows}, nil
+	case strings.Contains(query, "INSERT INTO run_events"):
+		runID := asRunID(args[1])
+		event := domain.RunEvent{
+			ID:             domain.RunEventID(asString(args[0])),
+			RunID:          runID,
+			WorkspaceID:    domain.WorkspaceID(asString(args[2])),
+			FlowID:         asFlowID(args[3]),
+			SavedRequestID: domain.SavedRequestID(asString(args[4])),
+			Sequence:       int64(len(h.runEvents[runID]) + 1),
+			EventType:      domain.RunEventType(asString(args[6])),
+			Level:          domain.RunEventLevel(asString(args[7])),
+			StepName:       asString(args[8]),
+			Message:        asString(args[11]),
+			DetailsJSON:    asBytes(args[12]),
+			CreatedAt:      asTime(args[13]),
+		}
+		if value := asIntPtr(args[9]); value != nil {
+			event.StepOrder = value
+		}
+		if value := asIntPtr(args[10]); value != nil {
+			event.Attempt = value
+		}
+		h.runEvents[runID] = append(h.runEvents[runID], event)
+		return &harnessRows{columns: []string{"sequence"}, values: [][]driver.Value{{event.Sequence}}}, nil
+	case strings.Contains(query, "FROM run_events"):
+		runID := asRunID(args[0])
+		after := asInt64(args[1])
+		events := h.runEvents[runID]
+		rows := make([][]driver.Value, 0, len(events))
+		for _, event := range events {
+			if event.Sequence <= after {
+				continue
+			}
+			rows = append(rows, runEventRow(event))
+		}
+		return &harnessRows{columns: []string{"id", "run_id", "workspace_id", "flow_id", "saved_request_id", "sequence", "event_type", "level", "step_name", "step_order", "attempt", "message", "details_json", "created_at"}, values: rows}, nil
 	default:
 		return nil, fmt.Errorf("unsupported query: %s", query)
 	}
@@ -658,6 +800,23 @@ func decodeFlowStepArgs(args []driver.NamedValue) (domain.FlowStep, error) {
 		return domain.FlowStep{}, err
 	}
 	if err := json.Unmarshal(asBytes(args[9]), &step.AssertionSpec); err != nil {
+		return domain.FlowStep{}, err
+	}
+	return step, nil
+}
+
+func decodeVersionedFlowStepArgs(args []driver.NamedValue) (domain.FlowStep, error) {
+	step := domain.FlowStep{ID: domain.FlowStepID(asString(args[0])), FlowID: asFlowID(args[1]), OrderIndex: asInt(args[3]), Name: asString(args[4]), StepType: domain.FlowStepType(asString(args[5])), SavedRequestID: domain.SavedRequestID(asString(args[6])), CreatedAt: asTime(args[11]), UpdatedAt: asTime(args[12])}
+	if err := json.Unmarshal(asBytes(args[7]), &step.RequestSpec); err != nil {
+		return domain.FlowStep{}, err
+	}
+	if err := json.Unmarshal(asBytes(args[8]), &step.RequestSpecOverride); err != nil {
+		return domain.FlowStep{}, err
+	}
+	if err := json.Unmarshal(asBytes(args[9]), &step.ExtractionSpec); err != nil {
+		return domain.FlowStep{}, err
+	}
+	if err := json.Unmarshal(asBytes(args[10]), &step.AssertionSpec); err != nil {
 		return domain.FlowStep{}, err
 	}
 	return step, nil
@@ -714,6 +873,25 @@ func flowRunRow(run domain.FlowRun) []driver.Value {
 	}
 }
 
+func runEventRow(event domain.RunEvent) []driver.Value {
+	return []driver.Value{
+		string(event.ID),
+		string(event.RunID),
+		string(event.WorkspaceID),
+		valueOrNilString(event.FlowID),
+		valueOrNilString(event.SavedRequestID),
+		event.Sequence,
+		string(event.EventType),
+		string(event.Level),
+		valueOrNilString(event.StepName),
+		valueOrNil(event.StepOrder),
+		valueOrNil(event.Attempt),
+		event.Message,
+		[]byte(event.DetailsJSON),
+		event.CreatedAt,
+	}
+}
+
 func valueOrNilString[T ~string](value T) any {
 	if value == "" {
 		return nil
@@ -763,6 +941,25 @@ func asInt(value driver.NamedValue) int {
 	default:
 		return 0
 	}
+}
+
+func asInt64(value driver.NamedValue) int64 {
+	switch v := value.Value.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func asIntPtr(value driver.NamedValue) *int {
+	if value.Value == nil {
+		return nil
+	}
+	v := asInt(value)
+	return &v
 }
 func asTime(value driver.NamedValue) time.Time {
 	if t, ok := value.Value.(time.Time); ok {

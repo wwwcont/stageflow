@@ -57,6 +57,9 @@ func (s *FlowManagementService) CreateFlow(ctx context.Context, cmd CreateFlowCo
 	if err := s.flowSteps.CreateMany(ctx, steps); err != nil {
 		return FlowDefinitionView{}, fmt.Errorf("create flow %q steps: %w", flow.ID, err)
 	}
+	if err := s.flowSteps.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, steps); err != nil {
+		return FlowDefinitionView{}, fmt.Errorf("snapshot flow %q version %d steps: %w", flow.ID, flow.Version, err)
+	}
 	return FlowDefinitionView{Flow: flow, Steps: steps}, nil
 }
 
@@ -86,20 +89,42 @@ func (s *FlowManagementService) UpdateFlow(ctx context.Context, cmd UpdateFlowCo
 	if err := s.flowSteps.ReplaceByFlowID(ctx, flow.ID, steps); err != nil {
 		return FlowDefinitionView{}, fmt.Errorf("replace flow %q steps: %w", flow.ID, err)
 	}
+	if err := s.flowSteps.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, steps); err != nil {
+		return FlowDefinitionView{}, fmt.Errorf("snapshot flow %q version %d steps: %w", flow.ID, flow.Version, err)
+	}
 	return FlowDefinitionView{Flow: flow, Steps: steps}, nil
 }
 
 func (s *FlowManagementService) GetFlow(ctx context.Context, query GetFlowQuery) (FlowDefinitionView, error) {
-	flow, err := s.flows.GetByID(ctx, query.FlowID)
-	if err != nil {
-		return FlowDefinitionView{}, fmt.Errorf("get flow %q: %w", query.FlowID, err)
+	var (
+		flow domain.Flow
+		err  error
+	)
+	if query.Version > 0 {
+		flow, err = s.flows.GetVersion(ctx, query.FlowID, query.Version)
+		if err != nil {
+			return FlowDefinitionView{}, fmt.Errorf("get flow %q version %d: %w", query.FlowID, query.Version, err)
+		}
+	} else {
+		flow, err = s.flows.GetByID(ctx, query.FlowID)
+		if err != nil {
+			return FlowDefinitionView{}, fmt.Errorf("get flow %q: %w", query.FlowID, err)
+		}
 	}
 	if query.WorkspaceID != "" && flow.WorkspaceID != query.WorkspaceID {
 		return FlowDefinitionView{}, &domain.NotFoundError{Entity: "flow", ID: string(query.FlowID)}
 	}
-	steps, err := s.flowSteps.ListByFlowID(ctx, query.FlowID)
-	if err != nil {
-		return FlowDefinitionView{}, fmt.Errorf("list flow %q steps: %w", query.FlowID, err)
+	var steps []domain.FlowStep
+	if query.Version > 0 {
+		steps, err = s.flowSteps.ListByFlowVersion(ctx, query.FlowID, query.Version)
+		if err != nil {
+			return FlowDefinitionView{}, fmt.Errorf("list flow %q version %d steps: %w", query.FlowID, query.Version, err)
+		}
+	} else {
+		steps, err = s.flowSteps.ListByFlowID(ctx, query.FlowID)
+		if err != nil {
+			return FlowDefinitionView{}, fmt.Errorf("list flow %q steps: %w", query.FlowID, err)
+		}
 	}
 	return FlowDefinitionView{Flow: flow, Steps: steps}, nil
 }

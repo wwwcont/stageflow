@@ -182,6 +182,23 @@ type runStepResponse struct {
 	AttemptHistory   any    `json:"attempt_history,omitempty"`
 }
 
+type runEventResponse struct {
+	ID             string `json:"id"`
+	RunID          string `json:"run_id"`
+	WorkspaceID    string `json:"workspace_id"`
+	FlowID         string `json:"flow_id,omitempty"`
+	SavedRequestID string `json:"saved_request_id,omitempty"`
+	Sequence       int64  `json:"sequence"`
+	EventType      string `json:"event_type"`
+	Level          string `json:"level"`
+	StepName       string `json:"step_name,omitempty"`
+	StepOrder      *int   `json:"step_order,omitempty"`
+	Attempt        *int   `json:"attempt,omitempty"`
+	Message        string `json:"message"`
+	CreatedAt      string `json:"created_at"`
+	Details        any    `json:"details,omitempty"`
+}
+
 type importCurlResponse struct {
 	RequestSpec requestSpecDTO `json:"request_spec"`
 }
@@ -492,6 +509,36 @@ func mapRunStep(step domain.FlowRunStep) runStepResponse {
 		ExtractedValues:  decodeJSONRaw(step.ExtractedValuesJSON),
 		AttemptHistory:   decodeJSONRaw(step.AttemptHistoryJSON),
 	}
+}
+
+func mapRunEvent(event domain.RunEvent) runEventResponse {
+	return runEventResponse{
+		ID:             string(event.ID),
+		RunID:          string(event.RunID),
+		WorkspaceID:    string(event.WorkspaceID),
+		FlowID:         string(event.FlowID),
+		SavedRequestID: string(event.SavedRequestID),
+		Sequence:       event.Sequence,
+		EventType:      string(event.EventType),
+		Level:          string(event.Level),
+		StepName:       event.StepName,
+		StepOrder:      event.StepOrder,
+		Attempt:        event.Attempt,
+		Message:        event.Message,
+		CreatedAt:      formatTime(event.CreatedAt),
+		Details:        parseJSON(event.DetailsJSON),
+	}
+}
+
+func parseJSON(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }
 
 func parseDuration(value string) (time.Duration, error) {

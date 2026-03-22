@@ -59,6 +59,20 @@ CREATE INDEX idx_flows_name_lower ON flows (LOWER(name));
 CREATE INDEX idx_flows_status ON flows (status);
 CREATE INDEX idx_flows_workspace_id ON flows (workspace_id);
 
+CREATE TABLE flow_versions (
+    flow_id TEXT NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+    version INTEGER NOT NULL CHECK (version >= 1),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK (status IN ('draft', 'active', 'disabled', 'archived')),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (flow_id, version)
+);
+
+CREATE INDEX idx_flow_versions_workspace_id ON flow_versions (workspace_id);
+
 CREATE TABLE flow_steps (
     id TEXT PRIMARY KEY,
     flow_id TEXT NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
@@ -77,6 +91,28 @@ CREATE TABLE flow_steps (
 
 CREATE INDEX idx_flow_steps_flow_id_order ON flow_steps (flow_id, order_index);
 CREATE INDEX idx_flow_steps_saved_request_id ON flow_steps (saved_request_id);
+
+CREATE TABLE flow_step_versions (
+    id TEXT NOT NULL,
+    flow_id TEXT NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL CHECK (version >= 1),
+    order_index INTEGER NOT NULL CHECK (order_index >= 0),
+    name TEXT NOT NULL,
+    step_type TEXT NOT NULL DEFAULT 'inline_request' CHECK (step_type IN ('inline_request', 'saved_request_ref')),
+    saved_request_id TEXT NULL REFERENCES saved_requests(id) ON DELETE RESTRICT,
+    request_spec JSONB NOT NULL DEFAULT '{}'::jsonb,
+    request_spec_override JSONB NOT NULL DEFAULT '{}'::jsonb,
+    extraction_spec JSONB NOT NULL,
+    assertion_spec JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (flow_id, version, id),
+    UNIQUE (flow_id, version, order_index),
+    FOREIGN KEY (flow_id, version) REFERENCES flow_versions(flow_id, version) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_flow_step_versions_flow_id_version_order ON flow_step_versions (flow_id, version, order_index);
+CREATE INDEX idx_flow_step_versions_saved_request_id ON flow_step_versions (saved_request_id);
 
 CREATE TABLE flow_runs (
     id TEXT PRIMARY KEY,
@@ -131,3 +167,25 @@ CREATE TABLE flow_run_steps (
 );
 
 CREATE INDEX idx_flow_run_steps_run_id_order ON flow_run_steps (run_id, step_order);
+
+CREATE TABLE run_events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES flow_runs(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+    flow_id TEXT NULL REFERENCES flows(id) ON DELETE RESTRICT,
+    saved_request_id TEXT NULL REFERENCES saved_requests(id) ON DELETE RESTRICT,
+    sequence BIGINT NOT NULL CHECK (sequence > 0),
+    event_type TEXT NOT NULL,
+    level TEXT NOT NULL CHECK (level IN ('info', 'warn', 'error')),
+    step_name TEXT NULL,
+    step_order INTEGER NULL CHECK (step_order IS NULL OR step_order >= 0),
+    attempt INTEGER NULL CHECK (attempt IS NULL OR attempt >= 1),
+    message TEXT NOT NULL,
+    details_json JSONB NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (run_id, sequence)
+);
+
+CREATE INDEX idx_run_events_run_id_sequence ON run_events (run_id, sequence);
+CREATE INDEX idx_run_events_workspace_id_created_at ON run_events (workspace_id, created_at DESC);
+CREATE INDEX idx_run_events_flow_id_created_at ON run_events (flow_id, created_at DESC);

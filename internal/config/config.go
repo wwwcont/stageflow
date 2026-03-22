@@ -24,6 +24,7 @@ type Config struct {
 	UI            UIConfig
 	Log           LogConfig
 	Redis         RedisConfig
+	Postgres      PostgresConfig
 	Worker        WorkerConfig
 	Runtime       RuntimeConfig
 	Observability ObservabilityConfig
@@ -53,6 +54,14 @@ type RedisConfig struct {
 	KeyPrefix string
 }
 
+type PostgresConfig struct {
+	Driver          string
+	DSN             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
 type WorkerConfig struct {
 	ID                string
 	PollInterval      time.Duration
@@ -64,6 +73,7 @@ type WorkerConfig struct {
 }
 
 type RuntimeConfig struct {
+	StorageBackend  string
 	DefaultRunQueue string
 	AllowedHosts    []string
 }
@@ -120,6 +130,13 @@ func Load(_ context.Context, args []string, env EnvProvider) (Config, error) {
 			DB:        parser.int("STAGEFLOW_REDIS_DB", 0),
 			KeyPrefix: parser.string("STAGEFLOW_REDIS_PREFIX", "stageflow"),
 		},
+		Postgres: PostgresConfig{
+			Driver:          parser.string("STAGEFLOW_POSTGRES_DRIVER", "postgres"),
+			DSN:             parser.string("STAGEFLOW_POSTGRES_DSN", ""),
+			MaxOpenConns:    parser.int("STAGEFLOW_POSTGRES_MAX_OPEN_CONNS", 10),
+			MaxIdleConns:    parser.int("STAGEFLOW_POSTGRES_MAX_IDLE_CONNS", 5),
+			ConnMaxLifetime: parser.duration("STAGEFLOW_POSTGRES_CONN_MAX_LIFETIME", 30*time.Minute),
+		},
 		Worker: WorkerConfig{
 			ID:                parser.string("STAGEFLOW_WORKER_ID", fmt.Sprintf("%s-worker", parser.string("STAGEFLOW_SERVICE_NAME", "stageflow"))),
 			PollInterval:      parser.duration("STAGEFLOW_WORKER_POLL_INTERVAL", time.Second),
@@ -130,6 +147,7 @@ func Load(_ context.Context, args []string, env EnvProvider) (Config, error) {
 			RecoveryBatchSize: parser.int("STAGEFLOW_WORKER_RECOVERY_BATCH_SIZE", 10),
 		},
 		Runtime: RuntimeConfig{
+			StorageBackend:  parser.string("STAGEFLOW_STORAGE_BACKEND", "inmemory"),
 			DefaultRunQueue: parser.string("STAGEFLOW_DEFAULT_RUN_QUEUE", "default"),
 			AllowedHosts:    parser.csv("STAGEFLOW_ALLOWED_HOSTS", []string{"example.internal", "host.docker.internal", "localhost"}),
 		},
@@ -158,6 +176,11 @@ func Load(_ context.Context, args []string, env EnvProvider) (Config, error) {
 	fs.StringVar(&cfg.Redis.Password, "redis-password", cfg.Redis.Password, "Redis password")
 	fs.IntVar(&cfg.Redis.DB, "redis-db", cfg.Redis.DB, "Redis logical DB index")
 	fs.StringVar(&cfg.Redis.KeyPrefix, "redis-prefix", cfg.Redis.KeyPrefix, "Redis key prefix for StageFlow")
+	fs.StringVar(&cfg.Postgres.Driver, "postgres-driver", cfg.Postgres.Driver, "database/sql driver name for Postgres runtime storage")
+	fs.StringVar(&cfg.Postgres.DSN, "postgres-dsn", cfg.Postgres.DSN, "Postgres DSN used when storage backend is postgres")
+	fs.IntVar(&cfg.Postgres.MaxOpenConns, "postgres-max-open-conns", cfg.Postgres.MaxOpenConns, "maximum number of Postgres open connections")
+	fs.IntVar(&cfg.Postgres.MaxIdleConns, "postgres-max-idle-conns", cfg.Postgres.MaxIdleConns, "maximum number of Postgres idle connections")
+	fs.DurationVar(&cfg.Postgres.ConnMaxLifetime, "postgres-conn-max-lifetime", cfg.Postgres.ConnMaxLifetime, "maximum Postgres connection lifetime")
 	fs.StringVar(&cfg.Worker.ID, "worker-id", cfg.Worker.ID, "worker identifier")
 	fs.DurationVar(&cfg.Worker.PollInterval, "worker-poll-interval", cfg.Worker.PollInterval, "worker poll interval")
 	fs.DurationVar(&cfg.Worker.LeaseDuration, "worker-lease-duration", cfg.Worker.LeaseDuration, "worker lease duration")
@@ -165,6 +188,7 @@ func Load(_ context.Context, args []string, env EnvProvider) (Config, error) {
 	fs.DurationVar(&cfg.Worker.StaleRunTimeout, "worker-stale-run-timeout", cfg.Worker.StaleRunTimeout, "how old a running run heartbeat must be before takeover is allowed")
 	fs.DurationVar(&cfg.Worker.RequeueDelay, "worker-requeue-delay", cfg.Worker.RequeueDelay, "delay before releasing a conflicting job back to the queue")
 	fs.IntVar(&cfg.Worker.RecoveryBatchSize, "worker-recovery-batch-size", cfg.Worker.RecoveryBatchSize, "max number of expired leases to requeue per recovery cycle")
+	fs.StringVar(&cfg.Runtime.StorageBackend, "storage-backend", cfg.Runtime.StorageBackend, "runtime storage backend (inmemory|postgres)")
 	fs.StringVar(&cfg.Runtime.DefaultRunQueue, "default-run-queue", cfg.Runtime.DefaultRunQueue, "default queue for asynchronous run execution")
 	fs.Func("allowed-host", "allowed outbound HTTP host; repeat flag to add more than one host", func(value string) error {
 		cfg.Runtime.AllowedHosts = append(cfg.Runtime.AllowedHosts, strings.TrimSpace(value))
@@ -200,7 +224,10 @@ func (c *Config) normalize() {
 	c.UI.Prefix = strings.TrimSpace(c.UI.Prefix)
 	c.Redis.Addr = strings.TrimSpace(c.Redis.Addr)
 	c.Redis.KeyPrefix = strings.TrimSpace(c.Redis.KeyPrefix)
+	c.Postgres.Driver = strings.TrimSpace(c.Postgres.Driver)
+	c.Postgres.DSN = strings.TrimSpace(c.Postgres.DSN)
 	c.Worker.ID = strings.TrimSpace(c.Worker.ID)
+	c.Runtime.StorageBackend = strings.ToLower(strings.TrimSpace(c.Runtime.StorageBackend))
 	c.Runtime.DefaultRunQueue = strings.TrimSpace(c.Runtime.DefaultRunQueue)
 	c.Runtime.AllowedHosts = normalizeHosts(c.Runtime.AllowedHosts)
 	c.Observability.MetricsPath = strings.TrimSpace(c.Observability.MetricsPath)
@@ -227,6 +254,26 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.UI.Prefix) == "" || !strings.HasPrefix(c.UI.Prefix, "/") {
 		errs = append(errs, errors.New("ui prefix must start with '/'"))
+	}
+	if !isAllowedStorageBackend(c.Runtime.StorageBackend) {
+		errs = append(errs, fmt.Errorf("unsupported storage backend %q", c.Runtime.StorageBackend))
+	}
+	if c.Runtime.StorageBackend == "postgres" {
+		if c.Postgres.Driver == "" {
+			errs = append(errs, errors.New("postgres driver is required when storage backend is postgres"))
+		}
+		if c.Postgres.DSN == "" {
+			errs = append(errs, errors.New("postgres dsn is required when storage backend is postgres"))
+		}
+	}
+	if c.Postgres.MaxOpenConns <= 0 {
+		errs = append(errs, errors.New("postgres max open conns must be positive"))
+	}
+	if c.Postgres.MaxIdleConns < 0 {
+		errs = append(errs, errors.New("postgres max idle conns must be non-negative"))
+	}
+	if c.Postgres.ConnMaxLifetime <= 0 {
+		errs = append(errs, errors.New("postgres conn max lifetime must be positive"))
 	}
 	if c.Runtime.DefaultRunQueue == "" {
 		errs = append(errs, errors.New("default run queue is required"))
@@ -274,6 +321,15 @@ func (c Config) Validate() error {
 		errs = append(errs, errors.New("worker recovery batch size must be positive"))
 	}
 	return errors.Join(errs...)
+}
+
+func isAllowedStorageBackend(value string) bool {
+	switch value {
+	case "inmemory", "postgres":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitCSV(value string) []string {
