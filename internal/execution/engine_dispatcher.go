@@ -9,7 +9,7 @@ import (
 	"stageflow/internal/observability"
 )
 
-// EngineDispatcher bridges asynchronous launch requests to the execution engine.
+// EngineDispatcher связывает асинхронные запросы на запуск с движком выполнения.
 type EngineDispatcher struct {
 	engine Engine
 	logger *zap.Logger

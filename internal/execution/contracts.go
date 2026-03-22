@@ -7,17 +7,17 @@ import (
 	"stageflow/internal/domain"
 )
 
-// Dispatcher schedules asynchronous execution outside of the request path.
+// Dispatcher планирует асинхронное выполнение вне жизненного цикла HTTP-запроса.
 type Dispatcher interface {
 	Dispatch(ctx context.Context, job RunJob) error
 }
 
-// RunEventPublisher emits structured execution events for live debugging and run history.
+// RunEventPublisher публикует структурированные события выполнения для live-отладки и истории запусков.
 type RunEventPublisher interface {
 	PublishRunEvent(ctx context.Context, event domain.RunEvent) error
 }
 
-// Engine executes a concrete flow run by loading the current run state and flow definition.
+// Engine выполняет конкретный запуск флоу, загружая текущее состояние запуска и определение флоу.
 type Engine interface {
 	ExecuteRun(ctx context.Context, runID domain.RunID) error
 }
@@ -26,17 +26,17 @@ type HTTPExecutor interface {
 	Execute(ctx context.Context, spec domain.RequestSpec, policy HTTPExecutionPolicy) (HTTPExecutionResult, error)
 }
 
-// TemplateResolver materializes an HTTP request from typed request spec and execution context.
+// TemplateResolver материализует HTTP-запрос из типизированной спецификации запроса и контекста выполнения.
 type TemplateResolver interface {
 	Resolve(ctx context.Context, spec domain.RequestSpec, data RenderData) (ResolvedRequest, error)
 }
 
-// Extractor derives typed step outputs from an HTTP response.
+// Extractor извлекает типизированные результаты шага из HTTP-ответа.
 type Extractor interface {
 	Extract(ctx context.Context, spec domain.ExtractionSpec, response HTTPResponse) (map[string]any, error)
 }
 
-// Asserter verifies response expectations and returns assertion-specific errors.
+// Asserter проверяет ожидания к ответу и возвращает ошибки, относящиеся к проверкам.
 type Asserter interface {
 	Assert(ctx context.Context, spec domain.AssertionSpec, response HTTPResponse) error
 }

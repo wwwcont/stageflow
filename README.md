@@ -1,254 +1,254 @@
 # StageFlow
 
-StageFlow is an orchestration service for repeatable, observable, and safer execution of HTTP-based workflows. It is designed for teams that need to model multi-step integration scenarios, run them on demand, inspect each step, and do it with production-style guardrails instead of ad-hoc shell scripts or one-off Postman collections.
+StageFlow — это сервис оркестрации для повторяемого, наблюдаемого и более безопасного выполнения HTTP-ориентированных сценариев. Он предназначен для команд, которым нужно моделировать многошаговые интеграционные последовательности, запускать их по требованию, инспектировать каждый шаг и делать это с продакшен-подобными защитными ограничениями вместо ad-hoc shell-скриптов или разрозненных коллекций Postman.
 
-## The problem StageFlow solves
+## Какую проблему решает StageFlow
 
-Teams often need to exercise a sequence of dependent HTTP calls:
+Командам регулярно требуется выполнять последовательность зависимых HTTP-вызовов:
 
-- create a resource in one service
-- extract an identifier from the response
-- pass that identifier into the next request
-- assert that downstream systems reached the expected state
-- rerun the scenario later with the same or overridden input
-- debug failures with enough telemetry and artifacts to understand what happened
+- создать ресурс в одном сервисе;
+- извлечь идентификатор из ответа;
+- передать этот идентификатор в следующий запрос;
+- проверить, что downstream-системы пришли в ожидаемое состояние;
+- повторно запустить сценарий позже с тем же или переопределённым входом;
+- отладить сбои, имея достаточно телеметрии и артефактов, чтобы понять, что произошло.
 
-In practice, that workflow is usually split across scripts, CI jobs, notebooks, curl snippets, and tribal knowledge. The result is brittle staging validation, poor auditability, inconsistent error handling, and weak observability.
+На практике такой процесс обычно размазан по скриптам, CI-задачам, ноутбукам, curl-сниппетам и «устным договорённостям» внутри команды. В результате получаются хрупкие проверки staging-окружений, слабая аудируемость, непоследовательная обработка ошибок и слабая наблюдаемость.
 
-StageFlow centralizes that workflow into a backend service.
+StageFlow централизует этот процесс в одном backend-сервисе.
 
-## StageFlow idea
+## Идея StageFlow
 
-A **flow** is a reusable definition of ordered HTTP steps.
-A **run** is an execution of that flow with a concrete input payload.
-Each **step** can:
+**Flow** — это переиспользуемое определение упорядоченных HTTP-шагов.
+**Run** — это выполнение такого flow с конкретным входным payload.
+Каждый **step** может:
 
-- render request templates using run input and previously extracted values
-- execute an outbound HTTP call
-- extract values from the response
-- assert expected invariants before continuing
-- persist step-by-step execution state for later inspection
+- рендерить шаблоны запросов, используя вход запуска и ранее извлечённые значения;
+- выполнять исходящий HTTP-вызов;
+- извлекать значения из ответа;
+- проверять ожидаемые инварианты перед продолжением;
+- сохранять пошаговое состояние выполнения для последующего анализа.
 
-The service exposes an HTTP API to manage flow definitions, launch runs asynchronously, inspect results, and import a single curl command into a request spec draft.
+Сервис предоставляет HTTP API для управления определениями flow, асинхронного запуска run, просмотра результатов и импорта одной команды curl в черновик request spec.
 
-## Key capabilities
+## Ключевые возможности
 
-- CRUD-style flow definition management with validation before execution
-- asynchronous run launch and rerun support
-- sequential execution engine with template rendering, extraction, assertions, and retries
-- Redis-backed queue/worker processing model
-- request allowlist enforcement for outbound HTTP calls
-- header redaction in execution snapshots and logs
-- SSRF-oriented protections such as host allowlisting, URL validation, and redirect suppression
-- Prometheus metrics, structured logs, and OpenTelemetry tracing hooks
-- in-memory repositories for local development and deterministic tests
-- Postgres repository adapters and SQL migrations prepared for a persistent storage backend
+- управление определениями flow в стиле CRUD с валидацией до выполнения;
+- асинхронный запуск run и поддержка повторных запусков;
+- последовательный движок выполнения с рендерингом шаблонов, извлечением значений, проверками и ретраями;
+- модель обработки через очередь/воркер на базе Redis;
+- enforcement allowlist-а для исходящих HTTP-запросов;
+- редактирование чувствительных заголовков в execution snapshots и логах;
+- SSRF-ориентированные защиты: allowlist хостов, валидация URL и запрет редиректов;
+- метрики Prometheus, структурированные логи и интеграционные точки для OpenTelemetry tracing;
+- in-memory репозитории для локальной разработки и детерминированных тестов;
+- Postgres-адаптеры репозиториев и SQL-миграции, подготовленные для постоянного хранилища.
 
-## Architecture
+## Архитектура
 
 ```text
                    +---------------------------+
-                   |        API clients        |
+                   |      API-клиенты          |
                    | curl / CI / tests / UI    |
                    +-------------+-------------+
                                  |
                                  v
 +-------------------+   +--------+---------+   +----------------------+
-| Prometheus/Grafana|<--|  HTTP API layer  |-->| Flow management usecase|
-| metrics dashboards|   | handlers/mw      |   | create/update/validate |
-+-------------------+   +--------+---------+   +----------------------+
-                                 |
+| Prometheus/Grafana|<--|   HTTP API слой  |-->| Use case управления  |
+| панели метрик     |   | handlers/mw      |   | flow: create/update/ |
++-------------------+   +--------+---------+   | validate             |
+                                 |             +----------------------+
                                  v
                        +---------+----------+
-                       | Run coordinator    |
+                       | Координатор run    |
                        | create run + queue |
                        +---------+----------+
                                  |
                                  v
                         +--------+--------+
-                        | Redis run queue |
+                        | Redis-очередь   |
+                        | запусков        |
                         +--------+--------+
                                  |
                                  v
                         +--------+--------+
-                        | Worker service  |
-                        | lease + execute |
+                        | Worker-сервис    |
+                        | lease + execute  |
                         +--------+--------+
                                  |
                                  v
                         +--------+--------+
-                        | Execution engine|
-                        | render/extract  |
-                        | assert/retry    |
+                        | Движок выполнения|
+                        | render/extract   |
+                        | assert/retry     |
                         +--------+--------+
                                  |
                                  v
                         +--------+--------+
-                        | Safe HTTP exec  |
-                        | allowlist +     |
-                        | redaction       |
+                        | Безопасный HTTP  |
+                        | executor:        |
+                        | allowlist + mask |
                         +-----------------+
 ```
 
-## Project structure
+## Структура проекта
 
 ```text
-cmd/stageflow/               # main StageFlow process entrypoint
-cmd/stageflow-sandbox/       # lightweight local mock/sandbox HTTP service
-internal/app/                # application bootstrap and lifecycle wiring
-internal/config/             # env/flag config loading and validation
-internal/delivery/http/      # HTTP DTOs, handlers, middleware, server
-internal/domain/             # domain models, value objects, validation, errors
-internal/execution/          # engine, template rendering, extraction, assertions, HTTP executor
-internal/observability/      # logging, tracing, metrics, repository instrumentation
-internal/queue/redisqueue/   # Redis-backed queue implementation
-internal/redisclient/        # minimal Redis client abstraction
-internal/repository/         # repository contracts + in-memory adapters
-internal/repository/postgres/# Postgres adapters and integration tests
-internal/sandbox/            # sandbox service handlers, models, and in-memory state
-internal/usecase/            # flow management, run coordination, curl import
-internal/worker/             # background worker and dispatch coordination
-migrations/                  # SQL migrations for the Postgres schema
-pkg/clock/                   # small reusable dependency-light helpers
-third_party/                 # local stubs used to keep the scaffold self-contained
+cmd/stageflow/               # основная точка входа процесса StageFlow
+cmd/stageflow-sandbox/       # лёгкий локальный mock/sandbox HTTP-сервис
+internal/app/                # bootstrap приложения и связывание жизненного цикла
+internal/config/             # загрузка и валидация env/flag-конфигурации
+internal/delivery/http/      # HTTP DTO, handlers, middleware, server
+internal/domain/             # доменные модели, value objects, валидация, ошибки
+internal/execution/          # движок, рендеринг шаблонов, extraction, assertions, HTTP executor
+internal/observability/      # логирование, tracing, metrics, инструментирование репозиториев
+internal/queue/redisqueue/   # реализация очереди на базе Redis
+internal/redisclient/        # минимальная абстракция Redis-клиента
+internal/repository/         # контракты репозиториев + in-memory адаптеры
+internal/repository/postgres/# Postgres-адаптеры и интеграционные тесты
+internal/sandbox/            # handlers sandbox-сервиса, модели и in-memory состояние
+internal/usecase/            # управление flow, координация run, импорт curl
+internal/worker/             # фоновый worker и координация диспетчеризации
+migrations/                  # SQL-миграции для схемы Postgres
+pkg/clock/                   # небольшие переиспользуемые помощники без тяжёлых зависимостей
+third_party/                 # локальные стабы, сохраняющие каркас самодостаточным
 ```
 
-## Current runtime shape
+## Текущая форма runtime
 
-Today’s bootstrap wires:
+Сейчас bootstrap по умолчанию подключает:
 
-- **in-memory repositories** for flows and runs
-- **Redis** for async queueing
-- **Prometheus metrics** on `/metrics`
-- **OpenTelemetry tracing** with a stdout exporter by default
+- **in-memory репозитории** для flow и run;
+- **Redis** для асинхронной очереди;
+- **Prometheus metrics** на `/metrics`;
+- **OpenTelemetry tracing** с stdout-exporter по умолчанию.
 
-The repository contains Postgres adapters and migrations, but the default runtime still uses in-memory persistence. This is intentional for local iteration and testability, and is called out explicitly so the project does not overstate production readiness.
+В репозитории уже есть Postgres-адаптеры и миграции, но runtime по умолчанию по-прежнему использует in-memory persistence. Это сделано осознанно ради удобной локальной итерации и тестируемости; README специально подчёркивает это, чтобы не создавать ложного ощущения production-ready состояния.
 
-## Local development
+## Локальная разработка
 
-### Prerequisites
+### Требования
 
 - Go 1.23+
-- Docker and Docker Compose
+- Docker и Docker Compose
 
-### Start the local stack
+### Запуск локального стека
 
 ```bash
 make compose-up
 ```
 
-This starts:
+Команда поднимает:
 
-- StageFlow API on `http://localhost:8080`
-- StageFlow built-in UI on `http://localhost:8080/ui`
-- StageFlow sandbox service on `http://localhost:8091`
-- Redis on `localhost:6379`
-- Postgres on `localhost:5432`
-- Prometheus on `http://localhost:9090`
-- Grafana on `http://localhost:3000` (`admin` / `admin`)
+- StageFlow API на `http://localhost:8080`;
+- встроенный UI StageFlow на `http://localhost:8080/ui`;
+- sandbox-сервис StageFlow на `http://localhost:8091`;
+- Redis на `localhost:6379`;
+- Postgres на `localhost:5432`;
+- Prometheus на `http://localhost:9090`;
+- Grafana на `http://localhost:3000` (`admin` / `admin`).
 
-### Run only the app from source
+### Запуск только приложения из исходников
 
-If Redis is available locally:
+Если Redis уже доступен локально:
 
 ```bash
 make run
 ```
 
-The built-in server-rendered UI is enabled by default and is served by the same Go process as the API. Open `http://localhost:8080/ui` to browse workspaces, requests, flows, variables, secrets, policies, and run history without a separate frontend build.
+Встроенный server-rendered UI включён по умолчанию и обслуживается тем же Go-процессом, что и API. Откройте `http://localhost:8080/ui`, чтобы просматривать рабочие пространства, запросы, flow, переменные, секреты, политики и историю запусков без отдельной frontend-сборки.
 
+### Запуск sandbox-сервиса
 
-### Run the sandbox service
-
-For local flow authoring and e2e validation without touching real integrations, StageFlow now ships with a separate lightweight sandbox service:
+Для локального проектирования flow и e2e-проверок без обращения к реальным интеграциям StageFlow включает отдельный лёгкий sandbox-сервис:
 
 ```bash
 make run-sandbox
 ```
 
-By default it listens on `http://localhost:8091`. Inside Docker Compose it is available to the StageFlow app at hostname `sandbox:8091`, and the default compose allowlist already includes `sandbox` so flows can safely target it.
+По умолчанию он слушает `http://localhost:8091`. Внутри Docker Compose он доступен приложению StageFlow по имени хоста `sandbox:8091`, а allowlist по умолчанию в compose уже содержит `sandbox`, поэтому flow могут безопасно обращаться к нему.
 
-The sandbox is intentionally designed for StageFlow-specific scenarios:
+Sandbox специально заточен под сценарии StageFlow:
 
-- stateful multi-step flows (`users` -> `accounts` -> `orders`)
-- deterministic extraction from JSON bodies and response headers
-- assertion success and failure cases
-- retry testing with a controlled unstable endpoint
-- timeout testing with delayed responses
-- saved-request execution against predictable mock APIs
+- stateful многошаговые сценарии (`users` -> `accounts` -> `orders`);
+- детерминированное извлечение из JSON-тел и заголовков ответа;
+- сценарии успешных и провальных проверок assertions;
+- тестирование retry с управляемым нестабильным endpoint;
+- тестирование таймаутов с задержанными ответами;
+- выполнение saved requests против предсказуемых mock API.
 
-#### Sandbox endpoints
+#### Endpoint’ы sandbox
 
-| Endpoint | Purpose |
+| Endpoint | Назначение |
 |---|---|
-| `POST /api/users` | create a user with stable nested fields for extraction |
-| `GET /api/users/{id}` | fetch a user by id |
-| `POST /api/accounts` | create an account linked to `user_id` |
-| `GET /api/accounts/{id}` | fetch an account by id |
-| `POST /api/orders` | create an order linked to `user_id` and `account_id` |
-| `GET /api/orders/{id}` | fetch an order by id |
-| `POST /api/orders/{id}/complete` | complete an order to drive multi-step state changes |
-| `GET /api/unstable` | returns `500` twice, then `200` for retry testing |
-| `GET /api/always-500` | deterministic failure endpoint |
-| `GET /api/delay/{ms}` | delayed response for timeout handling |
-| `GET /api/headers` | emits JSON plus headers like `X-Trace-ID` for header extraction |
-| `/api/echo` | echoes method, headers, query, and body summary |
-| `GET /api/assert/ok` | returns assertion-friendly success payload |
-| `GET /api/assert/wrong-value` | returns a payload with intentionally wrong values |
-| `GET /api/assert/missing-field` | returns a payload missing expected fields |
-| `POST /api/reset` | clears all in-memory state |
-| `POST /api/seed` | loads deterministic demo entities |
-| `GET /api/debug/state` | dumps the current in-memory state |
-| `GET /api/health` | sandbox liveness endpoint |
+| `POST /api/users` | создаёт пользователя со стабильными вложенными полями для extraction |
+| `GET /api/users/{id}` | получает пользователя по id |
+| `POST /api/accounts` | создаёт аккаунт, связанный с `user_id` |
+| `GET /api/accounts/{id}` | получает аккаунт по id |
+| `POST /api/orders` | создаёт заказ, связанный с `user_id` и `account_id` |
+| `GET /api/orders/{id}` | получает заказ по id |
+| `POST /api/orders/{id}/complete` | завершает заказ, чтобы воспроизводить многошаговые изменения состояния |
+| `GET /api/unstable` | дважды возвращает `500`, затем `200` для проверки retry |
+| `GET /api/always-500` | детерминированный endpoint с ошибкой |
+| `GET /api/delay/{ms}` | ответ с задержкой для проверки таймаутов |
+| `GET /api/headers` | возвращает JSON и заголовки вроде `X-Trace-ID` для extraction из header |
+| `/api/echo` | эхо-ответ с методом, заголовками, query и кратким summary body |
+| `GET /api/assert/ok` | возвращает payload, удобный для успешных assertions |
+| `GET /api/assert/wrong-value` | возвращает payload с заведомо неверными значениями |
+| `GET /api/assert/missing-field` | возвращает payload без ожидаемых полей |
+| `POST /api/reset` | очищает всё in-memory состояние |
+| `POST /api/seed` | загружает детерминированные demo-сущности |
+| `GET /api/debug/state` | выгружает текущее in-memory состояние |
+| `GET /api/health` | endpoint проверки живости sandbox |
 
-#### Sandbox in-memory model
+#### In-memory модель sandbox
 
-The sandbox keeps everything in memory under a mutex and exposes strongly typed JSON models:
+Sandbox хранит всё в памяти под mutex и отдаёт строго типизированные JSON-модели:
 
-- `users` keyed by `user-{n}`
-- `accounts` keyed by `acct-{n}` and linked to a user
-- `orders` keyed by `order-{n}` and linked to both user and account
-- sequence counters for generated ids
-- an `unstable` call counter so retry behaviour is deterministic
-- reset/seed metadata for debugging
+- `users`, индексируемые по `user-{n}`;
+- `accounts`, индексируемые по `acct-{n}` и связанные с пользователем;
+- `orders`, индексируемые по `order-{n}` и связанные и с пользователем, и с аккаунтом;
+- счётчики последовательностей для генерируемых id;
+- счётчик вызовов `unstable`, чтобы поведение retry было детерминированным;
+- метаданные reset/seed для отладки.
 
-Every stateful entity is designed to be easy to use from StageFlow extraction rules, with stable fields like `id`, `status`, `created_at`, nested objects, and link metadata.
+Каждая stateful-сущность спроектирована так, чтобы её было удобно использовать в extraction rules StageFlow: со стабильными полями вроде `id`, `status`, `created_at`, вложенными объектами и ссылочной метаинформацией.
 
-#### Example sandbox scenarios for StageFlow
+#### Примеры sandbox-сценариев для StageFlow
 
-1. **Create user -> create account -> create order**  
-   Build a flow that posts to `/api/users`, extracts `$.id`, creates an account with `user_id`, extracts `$.id`, then creates an order and asserts `$.status == "pending"`.
+1. **Создать пользователя -> создать аккаунт -> создать заказ**
+   Соберите flow, который отправляет запрос в `/api/users`, извлекает `$.id`, затем создаёт аккаунт с `user_id`, снова извлекает `$.id`, после чего создаёт заказ и проверяет `$.status == "pending"`.
 
-2. **Unstable endpoint with retry**  
-   Point a saved request or flow step to `http://sandbox:8091/api/unstable` with retry enabled. The first two calls fail with `500`, the third succeeds.
+2. **Нестабильный endpoint с retry**
+   Направьте saved request или шаг flow на `http://sandbox:8091/api/unstable` с включённым retry. Первые два вызова завершатся `500`, третий — успехом.
 
-3. **Timeout case**  
-   Call `http://sandbox:8091/api/delay/2500` with a lower request timeout in StageFlow to verify timeout handling and run failure logging.
+3. **Сценарий таймаута**
+   Вызовите `http://sandbox:8091/api/delay/2500` с меньшим request timeout в StageFlow, чтобы проверить обработку таймаута и логирование падения run.
 
-4. **Assertion failure case**  
-   Call `http://sandbox:8091/api/assert/wrong-value` and assert that `$.result.value == "expected"` to force a deterministic assertion failure.
+4. **Сценарий провальной проверки**
+   Вызовите `http://sandbox:8091/api/assert/wrong-value` и проверьте, что `$.result.value == "expected"`, чтобы получить детерминированную ошибку assertion.
 
-5. **Header extraction case**  
-   Call `http://sandbox:8091/api/headers`, extract `X-Trace-ID` from response headers, and reuse it in a later step or assertion.
+5. **Сценарий извлечения из заголовков**
+   Вызовите `http://sandbox:8091/api/headers`, извлеките `X-Trace-ID` из заголовков ответа и переиспользуйте его в следующем шаге или проверке.
 
-### Built-in UI
+### Встроенный UI
 
-StageFlow now includes a lightweight HTML UI designed for internal operator/developer workflows:
+StageFlow включает лёгкий HTML UI для внутренних операторских и разработческих сценариев:
 
-- server-rendered with Go `html/template`
-- served from the same backend process and port as the API
-- no React/Vite/NPM build pipeline
-- practical CRUD pages for workspaces, saved requests, flows, steps, variables, secrets, policy, and runs, including archive/restore for workspaces
-- run details pages with formatted execution snapshots and auto-refresh for active runs
+- серверный рендеринг на Go `html/template`;
+- обслуживается тем же backend-процессом и на том же порту, что и API;
+- без React/Vite/NPM pipeline;
+- практичные CRUD-страницы для рабочих пространств, saved requests, flow, шагов, переменных, секретов, политик и run, включая архивирование/восстановление рабочих пространств;
+- страницы run details с форматированными execution snapshots и auto-refresh для активных запусков.
 
-UI-specific settings:
+Настройки UI:
 
-| Setting | Purpose | Default |
+| Параметр | Назначение | По умолчанию |
 |---|---|---|
-| `STAGEFLOW_UI_ENABLED` | enable the built-in UI | `true` |
-| `STAGEFLOW_UI_PREFIX` | route prefix for the built-in UI | `/ui` |
+| `STAGEFLOW_UI_ENABLED` | включает встроенный UI | `true` |
+| `STAGEFLOW_UI_PREFIX` | префикс маршрутов встроенного UI | `/ui` |
 
-### Build and test
+### Сборка и тестирование
 
 ```bash
 make build
@@ -256,59 +256,59 @@ make test
 make lint
 ```
 
-## Configuration
+## Конфигурация
 
-StageFlow is configured by environment variables and command-line flags.
+StageFlow настраивается через переменные окружения и флаги командной строки.
 
-Important settings:
+Важные параметры:
 
-| Setting | Purpose | Default |
+| Параметр | Назначение | По умолчанию |
 |---|---|---|
-| `STAGEFLOW_HTTP_ADDR` | API listen address | `:8080` |
-| `STAGEFLOW_ALLOWED_HOSTS` | Comma-separated outbound HTTP allowlist | `example.internal,host.docker.internal` |
-| `STAGEFLOW_DEFAULT_RUN_QUEUE` | Queue used for async launches | `default` |
-| `STAGEFLOW_REDIS_ADDR` | Redis address | `127.0.0.1:6379` |
-| `STAGEFLOW_REDIS_PREFIX` | Redis key prefix | `stageflow` |
-| `STAGEFLOW_TRACING_ENABLED` | Enable tracing | `true` |
-| `STAGEFLOW_TRACING_EXPORTER` | Tracing exporter (`stdout` or `none`) | `stdout` |
-| `STAGEFLOW_TRACING_SAMPLE_RATIO` | Trace sampling ratio | `1` |
-| `STAGEFLOW_LOG_LEVEL` | Log level | `info` |
+| `STAGEFLOW_HTTP_ADDR` | адрес прослушивания API | `:8080` |
+| `STAGEFLOW_ALLOWED_HOSTS` | allowlist исходящих HTTP-хостов через запятую | `example.internal,host.docker.internal` |
+| `STAGEFLOW_DEFAULT_RUN_QUEUE` | очередь для асинхронных запусков | `default` |
+| `STAGEFLOW_REDIS_ADDR` | адрес Redis | `127.0.0.1:6379` |
+| `STAGEFLOW_REDIS_PREFIX` | префикс ключей Redis | `stageflow` |
+| `STAGEFLOW_TRACING_ENABLED` | включает tracing | `true` |
+| `STAGEFLOW_TRACING_EXPORTER` | exporter tracing (`stdout` или `none`) | `stdout` |
+| `STAGEFLOW_TRACING_SAMPLE_RATIO` | коэффициент семплирования trace | `1` |
+| `STAGEFLOW_LOG_LEVEL` | уровень логирования | `info` |
 
-Polish notes in the current version:
+Что было дополировано в текущей версии:
 
-- invalid environment values now fail fast instead of silently falling back
-- allowed hosts are normalized and deduplicated during config loading
-- the service logs a concise runtime summary at startup
+- невалидные значения окружения теперь приводят к fast-fail вместо тихого fallback;
+- allowlist хостов нормализуется и дедуплицируется при загрузке конфигурации;
+- сервис пишет компактную сводку runtime при старте.
 
-## Apply migrations
+## Применение миграций
 
-Migrations are included for the Postgres-backed repository implementation.
+В репозитории уже есть миграции для реализации репозиториев на базе Postgres.
 
-To apply them against the local compose Postgres instance:
+Чтобы применить их к локальному экземпляру Postgres из compose:
 
 ```bash
 make migrate-up
 ```
 
-To roll them back:
+Чтобы откатить миграции:
 
 ```bash
 make migrate-down
 ```
 
-> Note: the default app bootstrap still uses in-memory repositories. The migrations are currently most useful for repository development, integration tests, and the next persistence integration step.
+> Примечание: bootstrap приложения по умолчанию всё ещё использует in-memory репозитории. Сейчас миграции наиболее полезны для разработки репозиториев, интеграционных тестов и следующего шага по интеграции постоянного хранилища.
 
-## API overview
+## Обзор API
 
-### Create a flow
+### Создание flow
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/flows \
   -H 'Content-Type: application/json' \
   -d '{
     "id": "order-happy-path",
-    "name": "Order happy path",
-    "description": "Creates an order and verifies its status",
+    "name": "Успешный сценарий заказа",
+    "description": "Создаёт заказ и проверяет его статус",
     "status": "active",
     "steps": [
       {
@@ -354,7 +354,7 @@ curl -X POST http://localhost:8080/api/v1/flows \
   }'
 ```
 
-### Import a curl command
+### Импорт команды curl
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/import/curl \
@@ -364,9 +364,9 @@ curl -X POST http://localhost:8080/api/v1/import/curl \
   }'
 ```
 
-This endpoint returns a normalized request spec draft that can be copied into a flow step.
+Этот endpoint возвращает нормализованный черновик request spec, который можно скопировать в шаг flow.
 
-### Launch a run
+### Запуск run
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/flows/order-happy-path/runs \
@@ -380,138 +380,138 @@ curl -X POST http://localhost:8080/api/v1/flows/order-happy-path/runs \
   }'
 ```
 
-### Inspect a run
+### Просмотр run
 
 ```bash
 curl http://localhost:8080/api/v1/runs/run-000000000000001
 curl http://localhost:8080/api/v1/runs/run-000000000000001/steps
 ```
 
-## Operational endpoints
+## Операционные endpoint’ы
 
-- `GET /healthz` — lightweight liveness probe
-- `GET /readyz` — readiness probe
-- `GET /version` — service/environment/version information
-- `GET /metrics` — Prometheus metrics
+- `GET /healthz` — лёгкая liveness-проверка;
+- `GET /readyz` — readiness-проверка;
+- `GET /version` — информация о сервисе, окружении и версии;
+- `GET /metrics` — метрики Prometheus.
 
-## Security model
+## Модель безопасности
 
-StageFlow is intended for controlled internal environments, but the outbound HTTP executor still enforces meaningful protections.
+StageFlow рассчитан на контролируемые внутренние окружения, но executor исходящих HTTP-запросов всё равно применяет значимые защитные меры.
 
 ### Allowlist
 
-Outbound requests are only permitted to hosts configured in `STAGEFLOW_ALLOWED_HOSTS`.
+Исходящие запросы разрешены только к хостам, указанным в `STAGEFLOW_ALLOWED_HOSTS`.
 
-Why this matters:
+Почему это важно:
 
-- avoids accidental calls to arbitrary internet endpoints
-- reduces blast radius for malformed or user-supplied flow definitions
-- makes intended integration boundaries explicit in config
+- предотвращает случайные обращения к произвольным интернет-адресам;
+- уменьшает радиус поражения для ошибочных или пользовательских определений flow;
+- делает ожидаемые интеграционные границы явными на уровне конфигурации.
 
-### Redaction
+### Редакция чувствительных данных
 
-Sensitive headers are redacted from execution snapshots and logs before being persisted or emitted. This protects common secrets such as:
+Чувствительные заголовки маскируются в execution snapshots и логах до их сохранения или отправки. Это защищает типовые секреты, например:
 
-- `Authorization`
-- `Proxy-Authorization`
-- `X-API-Key`
-- `Cookie`
-- `Set-Cookie`
+- `Authorization`;
+- `Proxy-Authorization`;
+- `X-API-Key`;
+- `Cookie`;
+- `Set-Cookie`.
 
-The executor keeps the request structurally inspectable without leaking obvious credentials.
+Executor сохраняет структурную inspectability запроса, не раскрывая при этом очевидные учётные данные.
 
-### SSRF mitigation
+### Защита от SSRF
 
-The safe HTTP executor includes several SSRF-oriented controls:
+Безопасный HTTP executor включает несколько защит, направленных против SSRF:
 
-- host allowlisting
-- scheme restriction to `http` and `https`
-- URL userinfo rejection
-- fragment rejection
-- redirect suppression
-- dial-time host/IP checks
-- loopback/IP restrictions unless explicitly allowed in executor config
-- request and response body size limits
-- per-request timeouts
+- allowlist хостов;
+- ограничение схем до `http` и `https`;
+- запрет URL userinfo;
+- запрет fragment;
+- подавление redirect;
+- проверки хоста/IP на этапе dial;
+- ограничения loopback/IP, если они явно не разрешены в конфигурации executor;
+- лимиты на размер request и response body;
+- таймауты на каждый запрос.
 
-This is not a full internet-exposed zero-trust sandbox, but it is a serious step above naïve `net/http` execution.
+Это не полноценная zero-trust sandbox-среда для публичного интернета, но это заметно серьёзнее, чем наивное выполнение через `net/http`.
 
-## Observability
+## Наблюдаемость
 
-StageFlow includes three observability layers out of the box.
+StageFlow из коробки включает три уровня наблюдаемости.
 
-### Logs
+### Логи
 
-- structured JSON logging via `zap`
-- startup runtime summary
-- request completion logs with request ID, method, route, status, and duration
-- worker execution and heartbeat failures logged with run/worker identifiers
+- структурированное JSON-логирование через `zap`;
+- стартовую сводку runtime;
+- логи завершения запросов с request ID, методом, маршрутом, статусом и длительностью;
+- логи ошибок выполнения worker и heartbeat с идентификаторами run/worker.
 
-### Metrics
+### Метрики
 
-Examples of exported metrics:
+Примеры экспортируемых метрик:
 
-- `flow_runs_total`
-- `flow_run_duration_seconds`
-- `flow_step_duration_seconds`
-- `flow_step_failures_total`
-- `active_runs`
-- `http_requests_total`
-- `http_request_duration_seconds`
-- `worker_jobs_total`
+- `flow_runs_total`;
+- `flow_run_duration_seconds`;
+- `flow_step_duration_seconds`;
+- `flow_step_failures_total`;
+- `active_runs`;
+- `http_requests_total`;
+- `http_request_duration_seconds`;
+- `worker_jobs_total`.
 
-### Tracing
+### Трассировка
 
-OpenTelemetry spans are emitted for:
+OpenTelemetry spans создаются для:
 
-- inbound HTTP requests
-- outbound HTTP execution
-- flow run execution
-- flow step execution
-- repository operations
+- входящих HTTP-запросов;
+- исходящих HTTP-вызовов;
+- выполнения run;
+- выполнения шагов flow;
+- операций репозитория.
 
-The current default exporter writes spans to stdout for local debugging.
+Текущий exporter по умолчанию пишет spans в stdout для локальной отладки.
 
-## What already looks strong
+## Что уже выглядит сильной стороной
 
-- domain model is explicit and strongly validated instead of pushing everything into untyped maps
-- execution concerns are separated into template rendering, extraction, assertions, and HTTP execution
-- repository contracts are clear and the in-memory adapters make tests fast and deterministic
-- worker queue leasing and recovery logic provide a realistic async execution shape
-- the code already includes tracing, metrics, and structured logging rather than treating observability as an afterthought
+- доменная модель выражена явно и строго валидируется, вместо того чтобы складывать всё в нетипизированные map;
+- concerns выполнения разделены на рендеринг шаблонов, extraction, assertions и HTTP execution;
+- контракты репозиториев прозрачны, а in-memory адаптеры делают тесты быстрыми и детерминированными;
+- логика lease/recovery в worker queue задаёт реалистичную форму асинхронного выполнения;
+- код уже включает tracing, metrics и структурированное логирование, а не откладывает observability «на потом».
 
-## Trade-offs in the current version
+## Компромиссы текущей версии
 
-- runtime persistence is still in-memory even though Postgres adapters already exist
-- execution is sequential only; there is no DAG or fan-out/fan-in support yet
-- tracing exporter is local-development oriented
-- API surface is functional, but authentication/authorization is not implemented
-- the built-in UI is intentionally minimal and form-oriented; it is not a SPA or visual flow builder
-- there is no flow version promotion workflow beyond increment-on-update semantics
+- runtime persistence всё ещё in-memory, хотя Postgres-адаптеры уже существуют;
+- выполнение пока только последовательное: поддержки DAG и fan-out/fan-in ещё нет;
+- tracing exporter ориентирован в первую очередь на локальную разработку;
+- API уже работоспособен, но аутентификация и авторизация пока не реализованы;
+- встроенный UI намеренно минималистичен и ориентирован на формы, а не на SPA или визуальный редактор flow;
+- отсутствует workflow продвижения версий flow, кроме семантики инкремента версии при обновлении.
 
-## Roadmap v2
+## План развития v2
 
-- wire Postgres as the primary runtime repository backend
-- add authn/authz and tenant-aware access controls
-- expose richer retry/backoff policies and dead-letter handling
-- add flow version history, diffing, and promotion workflows
-- support step concurrency and dependency graphs where needed
-- polish the built-in UI with richer diffing, filtering, and workflow affordances
-- support durable artifacts and richer execution snapshots
-- export traces to OTLP backends instead of stdout-only local output
-- add rate limiting / budgets for outbound integrations
+- подключить Postgres как основной runtime backend репозиториев;
+- добавить authn/authz и tenant-aware контроль доступа;
+- дать более богатые политики retry/backoff и обработку dead-letter сценариев;
+- добавить историю версий flow, diff и workflow продвижения изменений;
+- поддержать параллельность шагов и графы зависимостей там, где это нужно;
+- доработать встроенный UI более богатыми возможностями diff, фильтрации и сценарных действий;
+- поддержать долговечные артефакты и более богатые execution snapshots;
+- экспортировать traces в OTLP-бэкенды вместо stdout-only режима;
+- добавить rate limiting / budgets для исходящих интеграций.
 
-## Senior engineer self-review
+## Саморевью ведущего инженера
 
-### What improved in this polish pass
+### Что было улучшено на этом этапе полировки
 
-- tightened config ergonomics so invalid env values fail fast and allowlist hosts are normalized
-- clarified naming around the run-oriented application service
-- improved runtime lifecycle handling so worker execution uses cancellable contexts and the app shuts down more predictably on component failure
-- added operational endpoints expected from a real service (`/healthz`, `/readyz`, `/version`)
-- expanded tests into previously uncovered areas such as config loading and operational HTTP endpoints
-- replaced the placeholder README with a publication-ready document that explains the service honestly and concretely
+- улучшена ergonomics конфигурации: невалидные env-значения теперь приводят к fast-fail, а allowlist хостов нормализуется;
+- уточнён нейминг вокруг сервиса приложения, отвечающего за run;
+- улучшено управление жизненным циклом runtime: worker использует cancellable contexts, а приложение более предсказуемо завершается при сбоях компонентов;
+- добавлены операционные endpoint’ы, ожидаемые от реального сервиса (`/healthz`, `/readyz`, `/version`);
+- расширены тесты для ранее не покрытых зон, включая загрузку конфигурации и операционные HTTP-endpoint’ы;
+- placeholder README заменён на содержательный документ, который честно и предметно описывает сервис.
 
-### What I would still develop next
+### Что я бы развивал дальше
 
-If I were taking StageFlow to a true production milestone, my next step would be persistent runtime storage and auth. Those two changes would move the project from a strong orchestration scaffold to something a platform team could confidently expose to broader internal consumers.
+Если бы я доводил StageFlow до настоящего production milestone, следующим шагом я бы сделал постоянное runtime-хранилище и auth. Эти два изменения переведут проект из состояния сильного orchestration-scaffold в инструмент, который platform team сможет уверенно открывать для более широкой внутренней аудитории.

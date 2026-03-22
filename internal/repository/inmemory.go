@@ -12,8 +12,8 @@ import (
 	"stageflow/internal/domain"
 )
 
-// In-memory repositories keep the scaffold runnable without coupling the application
-// to a concrete database before the storage contract is finalized.
+// In-memory-репозитории позволяют каркасу оставаться рабочим без жёсткой привязки приложения
+// к конкретной базе данных, пока контракт хранилища ещё не финализирован.
 
 type InMemoryFlowRepository struct {
 	mu    sync.RWMutex

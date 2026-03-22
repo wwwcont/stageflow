@@ -8,7 +8,7 @@ import (
 	"stageflow/internal/domain"
 )
 
-// MonotonicRunIDFactory provides deterministic local IDs until a durable ID generator is introduced.
+// MonotonicRunIDFactory выдаёт детерминированные локальные идентификаторы до появления надёжного генератора ID.
 type MonotonicRunIDFactory struct {
 	counter atomic.Uint64
 }

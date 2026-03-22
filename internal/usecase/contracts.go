@@ -219,7 +219,7 @@ type WorkspaceView struct {
 	Workspace domain.Workspace
 }
 
-// FlowManagementUseCase owns creation, editing, retrieval and preflight validation of reusable flow definitions.
+// FlowManagementUseCase отвечает за создание, редактирование, получение и предварительную валидацию переиспользуемых определений флоу.
 type FlowManagementUseCase interface {
 	CreateFlow(ctx context.Context, cmd CreateFlowCommand) (FlowDefinitionView, error)
 	UpdateFlow(ctx context.Context, cmd UpdateFlowCommand) (FlowDefinitionView, error)
@@ -228,7 +228,7 @@ type FlowManagementUseCase interface {
 	ValidateFlow(ctx context.Context, cmd ValidateFlowCommand) (FlowValidationResult, error)
 }
 
-// SavedRequestManagementUseCase owns lifecycle and lookup of reusable single-request definitions.
+// SavedRequestManagementUseCase отвечает за жизненный цикл и поиск переиспользуемых определений одиночных запросов.
 type SavedRequestManagementUseCase interface {
 	CreateSavedRequest(ctx context.Context, cmd CreateSavedRequestCommand) (SavedRequestView, error)
 	UpdateSavedRequest(ctx context.Context, cmd UpdateSavedRequestCommand) (SavedRequestView, error)
@@ -236,34 +236,34 @@ type SavedRequestManagementUseCase interface {
 	ListSavedRequests(ctx context.Context, query ListSavedRequestsQuery) ([]domain.SavedRequest, error)
 }
 
-// FlowLaunchUseCase owns asynchronous launch requests and initial run record creation.
+// FlowLaunchUseCase отвечает за асинхронные запросы на запуск и создание исходной записи запуска.
 type FlowLaunchUseCase interface {
 	LaunchFlow(ctx context.Context, input LaunchFlowInput) (domain.FlowRun, error)
 }
 
-// SavedRequestLaunchUseCase owns standalone execution intent for a saved request.
+// SavedRequestLaunchUseCase отвечает за отдельный сценарий выполнения сохранённого запроса.
 type SavedRequestLaunchUseCase interface {
 	LaunchSavedRequest(ctx context.Context, input LaunchSavedRequestInput) (domain.FlowRun, error)
 	RunSavedRequest(ctx context.Context, input LaunchSavedRequestInput) (domain.FlowRun, error)
 }
 
-// RunStatusUseCase owns read-only access to run-level and step-level execution state.
+// RunStatusUseCase отвечает за доступ только на чтение к состоянию выполнения на уровне запуска и шагов.
 type RunStatusUseCase interface {
 	GetRunStatus(ctx context.Context, query GetRunStatusQuery) (RunStatusView, error)
 	ListRuns(ctx context.Context, query ListRunsQuery) ([]domain.FlowRun, error)
 }
 
-// FlowRerunUseCase owns replay semantics for already executed runs.
+// FlowRerunUseCase отвечает за семантику повторного запуска уже выполненных прогонов.
 type FlowRerunUseCase interface {
 	Rerun(ctx context.Context, input RerunInput) (domain.FlowRun, error)
 }
 
-// CurlImportUseCase owns translating cURL commands into draft flow definitions.
+// CurlImportUseCase отвечает за преобразование команд cURL в черновики определений флоу.
 type CurlImportUseCase interface {
 	ImportCurl(ctx context.Context, input ImportCurlInput) (ImportCurlResult, error)
 }
 
-// WorkspaceManagementUseCase owns creation and retrieval of team-level isolation boundaries.
+// WorkspaceManagementUseCase отвечает за создание и получение командных границ изоляции.
 type WorkspaceManagementUseCase interface {
 	CreateWorkspace(ctx context.Context, cmd CreateWorkspaceCommand) (WorkspaceView, error)
 	GetWorkspace(ctx context.Context, query GetWorkspaceQuery) (WorkspaceView, error)
@@ -278,7 +278,7 @@ type WorkspaceManagementUseCase interface {
 	DeleteWorkspaceSecret(ctx context.Context, cmd DeleteWorkspaceSecretCommand) error
 }
 
-// RunService groups the currently implemented run-oriented use cases behind a single contract for delivery adapters.
+// RunService объединяет уже реализованные сценарии, связанные с запусками, за единым контрактом для delivery-адаптеров.
 type RunService interface {
 	FlowLaunchUseCase
 	SavedRequestLaunchUseCase

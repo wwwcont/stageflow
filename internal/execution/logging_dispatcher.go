@@ -8,7 +8,7 @@ import (
 	"stageflow/internal/observability"
 )
 
-// LoggingDispatcher is a safe bootstrap implementation used until a real queue-backed dispatcher is introduced.
+// LoggingDispatcher — безопасная стартовая реализация, используемая до появления настоящего диспетчера на базе очереди.
 type LoggingDispatcher struct {
 	logger *zap.Logger
 }
