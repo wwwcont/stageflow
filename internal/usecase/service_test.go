@@ -108,10 +108,55 @@ func TestFlowService_Rerun_UsesOverrideAndIdempotencyKey(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ReplaceByFlowID() error = %v", err)
 	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, []domain.FlowStep{{
+		ID:             "flow-rerun-step-1",
+		FlowID:         flow.ID,
+		OrderIndex:     0,
+		Name:           "call",
+		RequestSpec:    domain.RequestSpec{Method: "GET", URLTemplate: "https://example.internal/health", Timeout: time.Second},
+		ExtractionSpec: domain.ExtractionSpec{},
+		AssertionSpec:  domain.AssertionSpec{},
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}}); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(v1) error = %v", err)
+	}
 	service.flowSteps = flowStepRepo
 	original := domain.FlowRun{ID: "run-original", WorkspaceID: "bootstrap", FlowID: flow.ID, FlowVersion: 1, Status: domain.RunStatusSucceeded, InputJSON: json.RawMessage(`{"old":true}`), InitiatedBy: "alice", QueueName: "default"}
 	if err := runRepo.Create(ctx, original); err != nil {
 		t.Fatalf("Create(run) error = %v", err)
+	}
+	flow.Version = 2
+	flow.Name = "Rerun flow v2"
+	flow.UpdatedAt = time.Now().UTC()
+	if err := flowRepo.Update(ctx, flow); err != nil {
+		t.Fatalf("Update(flow) error = %v", err)
+	}
+	if err := flowStepRepo.ReplaceByFlowID(ctx, flow.ID, []domain.FlowStep{{
+		ID:             "flow-rerun-step-2",
+		FlowID:         flow.ID,
+		OrderIndex:     0,
+		Name:           "call-v2",
+		RequestSpec:    domain.RequestSpec{Method: "GET", URLTemplate: "https://example.internal/v2", Timeout: time.Second},
+		ExtractionSpec: domain.ExtractionSpec{},
+		AssertionSpec:  domain.AssertionSpec{},
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}}); err != nil {
+		t.Fatalf("ReplaceByFlowID(v2) error = %v", err)
+	}
+	if err := flowStepRepo.ReplaceByFlowVersion(ctx, flow.ID, flow.Version, []domain.FlowStep{{
+		ID:             "flow-rerun-step-2",
+		FlowID:         flow.ID,
+		OrderIndex:     0,
+		Name:           "call-v2",
+		RequestSpec:    domain.RequestSpec{Method: "GET", URLTemplate: "https://example.internal/v2", Timeout: time.Second},
+		ExtractionSpec: domain.ExtractionSpec{},
+		AssertionSpec:  domain.AssertionSpec{},
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
+	}}); err != nil {
+		t.Fatalf("ReplaceByFlowVersion(v2) error = %v", err)
 	}
 
 	rerun, err := service.Rerun(ctx, RerunInput{WorkspaceID: "bootstrap", RunID: original.ID, InitiatedBy: "bob", OverrideJSON: json.RawMessage(`{"new":true}`), Queue: "reruns", IdempotencyKey: "rerun-idem"})
@@ -130,5 +175,8 @@ func TestFlowService_Rerun_UsesOverrideAndIdempotencyKey(t *testing.T) {
 	}
 	if persisted.QueueName != "reruns" {
 		t.Fatalf("QueueName = %q", persisted.QueueName)
+	}
+	if persisted.FlowVersion != 1 {
+		t.Fatalf("FlowVersion = %d, want 1", persisted.FlowVersion)
 	}
 }

@@ -74,12 +74,16 @@ func (s *RunCoordinator) LaunchFlow(ctx context.Context, input LaunchFlowInput) 
 	if err := s.validateLaunchableFlow(ctx, workspace, flow); err != nil {
 		return domain.FlowRun{}, err
 	}
-	if err := domain.ValidateJSONPayload(input.InputJSON, "launch input_json"); err != nil {
+	return s.enqueueFlowRun(ctx, workspace, flow.ID, flow.Version, input.InitiatedBy, input.InputJSON, input.Queue, input.IdempotencyKey)
+}
+
+func (s *RunCoordinator) enqueueFlowRun(ctx context.Context, workspace domain.Workspace, flowID domain.FlowID, flowVersion int, initiatedBy string, payload json.RawMessage, queue string, idempotencyKey string) (domain.FlowRun, error) {
+	if err := domain.ValidateJSONPayload(payload, "launch input_json"); err != nil {
 		return domain.FlowRun{}, err
 	}
-	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey != "" {
-		existing, err := s.runs.FindByIdempotencyKey(ctx, workspace.ID, input.FlowID, idempotencyKey)
+		existing, err := s.runs.FindByIdempotencyKey(ctx, workspace.ID, flowID, idempotencyKey)
 		if err == nil {
 			return existing, nil
 		}
@@ -88,7 +92,6 @@ func (s *RunCoordinator) LaunchFlow(ctx context.Context, input LaunchFlowInput) 
 			return domain.FlowRun{}, fmt.Errorf("lookup run by idempotency key %q: %w", idempotencyKey, err)
 		}
 	}
-	queue := input.Queue
 	if queue == "" {
 		queue = s.defaultQ
 	}
@@ -97,11 +100,11 @@ func (s *RunCoordinator) LaunchFlow(ctx context.Context, input LaunchFlowInput) 
 		ID:             s.idFactory.NewRunID(),
 		WorkspaceID:    workspace.ID,
 		TargetType:     domain.RunTargetTypeFlow,
-		FlowID:         flow.ID,
-		FlowVersion:    flow.Version,
+		FlowID:         flowID,
+		FlowVersion:    flowVersion,
 		Status:         domain.RunStatusQueued,
-		InputJSON:      cloneJSON(input.InputJSON),
-		InitiatedBy:    input.InitiatedBy,
+		InputJSON:      cloneJSON(payload),
+		InitiatedBy:    initiatedBy,
 		QueueName:      queue,
 		IdempotencyKey: idempotencyKey,
 	}
@@ -218,6 +221,13 @@ func (s *RunCoordinator) Rerun(ctx context.Context, input RerunInput) (domain.Fl
 	if input.WorkspaceID != "" && input.WorkspaceID != previous.WorkspaceID {
 		return domain.FlowRun{}, &domain.ConflictError{Entity: "flow run", Field: "workspace_id", Value: string(previous.WorkspaceID)}
 	}
+	workspace, err := s.workspaces.GetByID(ctx, previous.WorkspaceID)
+	if err != nil {
+		return domain.FlowRun{}, fmt.Errorf("get workspace %q: %w", previous.WorkspaceID, err)
+	}
+	if !workspace.AllowsWrites() {
+		return domain.FlowRun{}, &domain.ConflictError{Entity: "workspace", Field: "status", Value: string(workspace.Status)}
+	}
 	payload := cloneJSON(previous.InputJSON)
 	if len(input.OverrideJSON) > 0 {
 		if err := domain.ValidateJSONPayload(input.OverrideJSON, "rerun override_json"); err != nil {
@@ -227,14 +237,20 @@ func (s *RunCoordinator) Rerun(ctx context.Context, input RerunInput) (domain.Fl
 	}
 	switch previous.Target() {
 	case domain.RunTargetTypeFlow:
-		return s.LaunchFlow(ctx, LaunchFlowInput{
-			WorkspaceID:    previous.WorkspaceID,
-			FlowID:         previous.FlowID,
-			InitiatedBy:    input.InitiatedBy,
-			InputJSON:      payload,
-			Queue:          input.Queue,
-			IdempotencyKey: input.IdempotencyKey,
-		})
+		flow, err := s.flows.GetByID(ctx, previous.FlowID)
+		if err != nil {
+			return domain.FlowRun{}, fmt.Errorf("get flow %q: %w", previous.FlowID, err)
+		}
+		if flow.WorkspaceID != workspace.ID {
+			return domain.FlowRun{}, &domain.ConflictError{Entity: "flow", Field: "workspace_id", Value: string(flow.WorkspaceID)}
+		}
+		if _, err := s.flows.GetVersion(ctx, previous.FlowID, previous.FlowVersion); err != nil {
+			return domain.FlowRun{}, fmt.Errorf("get flow %q version %d: %w", previous.FlowID, previous.FlowVersion, err)
+		}
+		if err := s.validateLaunchableFlowVersion(ctx, workspace, previous.FlowID, previous.FlowVersion); err != nil {
+			return domain.FlowRun{}, err
+		}
+		return s.enqueueFlowRun(ctx, workspace, previous.FlowID, previous.FlowVersion, input.InitiatedBy, payload, input.Queue, input.IdempotencyKey)
 	case domain.RunTargetTypeSavedRequest:
 		return s.LaunchSavedRequest(ctx, LaunchSavedRequestInput{
 			WorkspaceID:    previous.WorkspaceID,
@@ -263,6 +279,18 @@ func (s *RunCoordinator) validateLaunchableFlow(ctx context.Context, workspace d
 	if err != nil {
 		return fmt.Errorf("list flow %q steps: %w", flow.ID, err)
 	}
+	return s.validateResolvedLaunchableFlow(ctx, workspace, steps)
+}
+
+func (s *RunCoordinator) validateLaunchableFlowVersion(ctx context.Context, workspace domain.Workspace, flowID domain.FlowID, version int) error {
+	steps, err := s.flowSteps.ListByFlowVersion(ctx, flowID, version)
+	if err != nil {
+		return fmt.Errorf("list flow %q version %d steps: %w", flowID, version, err)
+	}
+	return s.validateResolvedLaunchableFlow(ctx, workspace, steps)
+}
+
+func (s *RunCoordinator) validateResolvedLaunchableFlow(ctx context.Context, workspace domain.Workspace, steps []domain.FlowStep) error {
 	resolved := make([]domain.FlowStep, 0, len(steps))
 	for _, step := range steps {
 		switch step.Type() {
